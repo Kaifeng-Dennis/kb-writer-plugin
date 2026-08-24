@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kb-writer.local/schemas/completion-envelope-v1.json",
+  "title": "CompletionEnvelopeV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "origin",
+    "feature"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "provider",
+        "sessionReference"
+      ],
+      "properties": {
+        "type": {
+          "const": "LOCAL_SESSION"
+        },
+        "provider": {
+          "type": "string",
+          "pattern": ".*\\S.*"
+        },
+        "sessionReference": {
+          "type": "string",
+          "pattern": ".*\\S.*"
+        }
+      }
+    },
+    "feature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "goal",
+        "completionSummary"
+      ],
+      "properties": {
+        "goal": {
+          "type": "string",
+          "pattern": ".*\\S.*"
+        },
+        "completionSummary": {
+          "type": "string",
+          "pattern": ".*\\S.*"
+        },
+        "decisions": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "constraints": {
+          "$ref": "#/$defs/stringArray"
+        },
+        "unresolvedIssues": {
+          "$ref": "#/$defs/stringArray"
+        }
+      }
+    },
+    "changedArtifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "changeType"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": ".*\\S.*"
+          },
+          "changeType": {
+            "type": "string",
+            "pattern": ".*\\S.*"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "validationEvidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "summary",
+          "outcome"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "pattern": ".*\\S.*"
+          },
+          "summary": {
+            "type": "string",
+            "pattern": ".*\\S.*"
+          },
+          "outcome": {
+            "type": "string",
+            "pattern": ".*\\S.*"
+          }
+        }
+      }
+    },
+    "selectedEvidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "declaredType",
+          "provenance",
+          "integrityHash",
+          "content",
+          "included"
+        ],
+        "properties": {
+          "declaredType": {
+            "enum": [
+              "text/plain",
+              "text/markdown",
+              "application/json"
+            ]
+          },
+          "provenance": {
+            "type": "string",
+            "pattern": ".*\\S.*"
+          },
+          "integrityHash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-fA-F]{64}$"
+          },
+          "content": {
+            "type": "string",
+            "pattern": ".*\\S.*"
+          },
+          "uploadHandle": {
+            "type": "null"
+          },
+          "included": {
+            "const": true
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "stringArray": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
