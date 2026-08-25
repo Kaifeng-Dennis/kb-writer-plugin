@@ -24,7 +24,7 @@ curl -sS "$KB_WRITER_API_BASE_URL/v1/intent-workspaces/resolve/jira/$JIRA_KEY" \
 
 Present the resolved state and suggest the next action:
 
-- **No workspace exists**: The ticket has never been through the intent workspace flow. Suggest the PM use the browser UI to start first generation, or use `create-kb-intent` if they want to work from a local session instead.
+- **404 Not Found**: The ticket exists in the backlog but has no Intent Workspace. This means it has not been through the ticketless intent flow. Tell the PM: "This ticket exists in the KB backlog but has no Intent Workspace yet. You can work on it in the browser UI, or if you have a completed local session for this ticket, use `create-kb-intent` to create a workspace from that session instead." Do not assume the PM wants to create a workspace.
 - **Workspace ACTIVE, planning in progress**: Report planning status and suggest waiting or checking again later.
 - **Workspace ACTIVE, manifest has blocked UPDATE items**: Suggest `select-kb-target` to bind targets.
 - **Workspace ACTIVE, manifest has ready items**: Suggest `approve-kb-manifest` to start drafting.
