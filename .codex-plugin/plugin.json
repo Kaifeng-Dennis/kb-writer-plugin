@@ -1,6 +1,6 @@
 {
   "name": "kb-writer",
-  "version": "0.1.0+codex.20260825055014",
+  "version": "0.1.0+codex.20260825055338",
   "description": "Create KB Writer intent workspaces from completed local sessions, with PM-reviewed completion envelopes.",
   "author": {
     "name": "Smart KB team"
