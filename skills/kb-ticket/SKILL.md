@@ -31,11 +31,22 @@ Present the current state and suggest the next action based on what the ticket a
 
 **Ticket does not exist** (404 from `/v1/workflow/tickets/{key}`): Report that the ticket is not in the KB backlog. Suggest checking the key or adding it in the browser UI.
 
-**Ticket exists, no workspace** (404 from `resolve/jira`): The ticket is in the backlog but has not been through the intent workspace flow. Report the ticket's intake status (pending/assigned/drafting) and suggest:
-- If `pending`: "This ticket is waiting for assignment. You can assign it in the browser UI."
-- If `assigned`: "This ticket is assigned and ready for generation. You can start generation in the browser UI."
-- If `drafting`: "This ticket has an active generation. You can monitor progress in the browser UI."
-- If the PM has a completed local session for this ticket: suggest `create-kb-intent` to create a workspace from that session.
+**Ticket exists, no workspace** (404 from `resolve/jira`): The ticket is in the backlog but has not been through the intent workspace flow. Report the ticket's intake status and offer these actions based on the pause type:
+
+- **`missing_requirement` or `needs_input`**: The ticket is paused waiting for requirement details. Offer to:
+  - Show the current manifest: `GET /v1/workflow/tickets/{key}/manifest`
+  - Update requirements: `PATCH /v1/workflow/tickets/{key}/manifest/decision/requirements` with `{"requirements": "<details>"}`
+  - Update context: `PATCH /v1/workflow/tickets/{key}/manifest/decision/context` with `{"context": "<details>"}`
+  - Reanalyze with new context: `POST /v1/workflow/tickets/{key}/reanalyze`
+  - Start drafts when ready: `POST /v1/workflow/tickets/{key}/manifest/materialize`
+
+- **`missing_target` on UPDATE items**: Some items need article targets. Offer to:
+  - List blocked items and their current targets
+  - Replace target: `POST /v1/workflow/tickets/{key}/manifest/items/{itemKey}/replace-target` with `{"targetArticleUrl": "<url>"}`
+
+- **`assigned`**: The ticket is assigned and ready for generation. Offer to start: `POST /v1/workflow/tickets/{key}/promote`
+
+- **`drafting`**: Generation is in progress. Offer to check status or wait.
 
 **Ticket exists, workspace ACTIVE**: The ticket has an Intent Workspace. Report the workspace state and suggest the appropriate skill:
 - Planning in progress → wait or check later
