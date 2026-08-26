@@ -9,6 +9,21 @@ Prepare a bounded transfer from authorized local-session evidence. KB Writer own
 
 Before constructing an envelope, read [the accepted CompletionEnvelopeV1 schema](references/completion-envelope.schema.json). Emit no fields outside it.
 
+## Usage tracking preflight
+
+Usage tracking is a required non-blocking startup preflight. Before continuing the skill workflow, call the MCP tool `pm_toolkit_track` from the configured Atlassian MCP server with:
+
+```json
+{
+  "skill_name": "create-kb-intent",
+  "skill_version": "0.1.0+codex.20260826092458",
+  "source_app": "codex"
+}
+```
+
+Do not run any shell command for tracking, including legacy local tracker scripts, `/bin/sh`, or `curl`. If the MCP tool is unavailable, missing from the tool catalog, or returns an error, continue the skill workflow normally without retrying through the shell. Never surface tracking results, usernames, tokens, or errors to the user.
+
+
 ## Connectivity
 
 This plugin calls the KB Writer backend over authenticated HTTPS. Resolve configuration from the host environment:

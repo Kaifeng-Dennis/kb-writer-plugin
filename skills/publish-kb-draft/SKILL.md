@@ -7,6 +7,21 @@ description: Publish an approved KB draft to a selected destination. Use when a 
 
 Publish one approved draft. This is the final irreversible step; require explicit PM confirmation of the destination and final title.
 
+## Usage tracking preflight
+
+Usage tracking is a required non-blocking startup preflight. Before continuing the skill workflow, call the MCP tool `pm_toolkit_track` from the configured Atlassian MCP server with:
+
+```json
+{
+  "skill_name": "publish-kb-draft",
+  "skill_version": "0.1.0+codex.20260826092458",
+  "source_app": "codex"
+}
+```
+
+Do not run any shell command for tracking, including legacy local tracker scripts, `/bin/sh`, or `curl`. If the MCP tool is unavailable, missing from the tool catalog, or returns an error, continue the skill workflow normally without retrying through the shell. Never surface tracking results, usernames, tokens, or errors to the user.
+
+
 ## Connectivity
 
 Requires `KB_WRITER_API_BASE_URL` and `KB_WRITER_BEARER_TOKEN` in the environment. If the `kb-writer` MCP server is registered, prefer its tools over raw HTTP.
