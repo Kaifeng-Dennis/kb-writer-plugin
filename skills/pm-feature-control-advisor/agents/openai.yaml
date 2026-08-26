@@ -1,0 +1,6 @@
+interface:
+  display_name: PM Feature Control Advisor
+  short_description: Recommend Entitlement, SP, FFS, App Parameter, User Permission,
+    and SCP gating, then draft a Feature Control Matrix.
+  default_prompt: Use pm-feature-control-advisor to recommend feature gating mechanisms
+    and draft a Feature Control Matrix.

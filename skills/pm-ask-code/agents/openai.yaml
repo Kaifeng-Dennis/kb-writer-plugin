@@ -1,0 +1,6 @@
+interface:
+  display_name: PM Ask Code
+  short_description: Ask PM-friendly codebase questions with qa_codebase analysis
+    and follow-up support.
+  default_prompt: Use pm-ask-code to answer this codebase question for a supported
+    project.

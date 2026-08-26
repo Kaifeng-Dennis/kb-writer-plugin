@@ -1,0 +1,493 @@
+#!/usr/bin/env bash
+# This script uses bash-only syntax (process substitution, pipefail). Agents
+# sometimes invoke it as `sh <script>`, and on macOS /bin/sh is bash in POSIX
+# mode, where that syntax fails to parse. Re-exec under real bash first.
+# Keep this block POSIX-compatible and above any bash-only construct.
+if [ -z "${BASH_VERSION:-}" ] || [ "${BASH##*/}" != "bash" ]; then
+  exec /bin/bash "$0" "$@"
+fi
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+SKILLS_DIR="$CODEX_HOME/skills"
+CACHE_DIR="$CODEX_HOME/pm-toolkit-cache"
+DEFAULT_MANIFEST_URL="https://agent-cli-platform.int.rclabenv.com/api/pm-toolkit/releases/latest"
+RELEASES_PAGE_URL="https://agent-cli-platform.int.rclabenv.com/pm-toolkit-releases"
+RETIRED_SKILLS=(data-tracking-pm)
+TMP_DIR=""
+BACKUP_DIR=""
+
+cleanup() {
+  if [ -n "${TMP_DIR:-}" ] && [ -d "$TMP_DIR" ]; then
+    rm -rf "$TMP_DIR"
+  fi
+  if [ -n "${BACKUP_DIR:-}" ] && [ -d "$BACKUP_DIR" ]; then
+    rm -rf "$BACKUP_DIR"
+  fi
+}
+trap cleanup EXIT
+
+usage() {
+  cat >&2 <<EOF
+Usage:
+  pm-toolkit-version {current|latest|check|install} [local_zip]
+
+Commands:
+  current              Print the installed skill VERSION.
+  latest               Print the remote latest version.
+  check                If a newer version exists, download+verify into cache and print UPDATE_READY.
+  install              Install the cached UPDATE_READY package after the user confirms.
+  install <local_zip>  Force-install a local codex-skills-dist.zip (migration / offline).
+
+Notes:
+  - Codex agents should run check, ask the user, then install only after explicit confirmation.
+  - One-time migration from old Google Drive clients: download the zip from
+    $RELEASES_PAGE_URL
+    then either unzip and run ./setup, or run:
+      scripts/pm-toolkit-version install /path/to/codex-skills-dist.zip
+EOF
+}
+
+json_get() {
+  local file="$1"
+  local key="$2"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$file" "$key" <<'PY'
+import json, sys
+path, key = sys.argv[1], sys.argv[2]
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        value = json.load(f).get(key, "")
+except Exception:
+    value = ""
+if value is None:
+    value = ""
+print(value)
+PY
+  else
+    tr ',' '\n' < "$file" | sed -nE "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"([^\"]*)\".*/\1/p" | head -1
+  fi
+}
+
+download_url() {
+  local url="$1"
+  local out="$2"
+
+  if [ -f "$url" ]; then
+    cp "$url" "$out"
+    return 0
+  fi
+
+  curl -fsL --connect-timeout 10 --max-time 120 --retry 2 "$url" -o "$out"
+}
+
+sha256_file() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | awk '{print $1}'
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$file" <<'PY'
+import hashlib, sys
+path = sys.argv[1]
+h = hashlib.sha256()
+with open(path, "rb") as f:
+    for chunk in iter(lambda: f.read(1024 * 1024), b""):
+        h.update(chunk)
+print(h.hexdigest())
+PY
+  else
+    return 1
+  fi
+}
+
+version_part() {
+  local version="$1"
+  local index="$2"
+  printf '%s\n' "$version" | awk -F. -v i="$index" '{
+    gsub(/[^0-9].*/, "", $i)
+    if ($i == "") print 0; else print $i + 0
+  }'
+}
+
+version_gt() {
+  local left="$1"
+  local right="$2"
+  local i l r
+  for i in 1 2 3; do
+    l="$(version_part "$left" "$i")"
+    r="$(version_part "$right" "$i")"
+    if [ "$l" -gt "$r" ]; then return 0; fi
+    if [ "$l" -lt "$r" ]; then return 1; fi
+  done
+  return 1
+}
+
+current_version() {
+  if [ -f "$SKILL_DIR/VERSION" ]; then
+    tr -d '[:space:]' < "$SKILL_DIR/VERSION"
+    echo
+  else
+    echo "0.0.0"
+  fi
+}
+
+cache_paths_for_version() {
+  local version="$1"
+  CACHE_ZIP="$CACHE_DIR/codex-skills-dist-${version}.zip"
+  CACHE_META="$CACHE_DIR/codex-skills-dist-${version}.json"
+}
+
+verify_sha256() {
+  local file="$1"
+  local expected="$2"
+  local actual=""
+  if [ -z "$expected" ]; then
+    return 1
+  fi
+  actual="$(sha256_file "$file")" || return 1
+  [ "$actual" = "$expected" ]
+}
+
+cache_is_valid() {
+  local version="$1"
+  local expected_sha="$2"
+  cache_paths_for_version "$version"
+  if [ ! -f "$CACHE_ZIP" ] || [ ! -f "$CACHE_META" ]; then
+    return 1
+  fi
+  local cached_sha
+  cached_sha="$(json_get "$CACHE_META" sha256 || true)"
+  if [ -z "$cached_sha" ]; then
+    return 1
+  fi
+  if [ -n "$expected_sha" ] && [ "$cached_sha" != "$expected_sha" ]; then
+    return 1
+  fi
+  verify_sha256 "$CACHE_ZIP" "$cached_sha"
+}
+
+write_cache_meta() {
+  local version="$1"
+  local sha="$2"
+  local package_url="$3"
+  local published_at="$4"
+  cache_paths_for_version "$version"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$CACHE_META" "$version" "$sha" "$package_url" "$published_at" <<'PY'
+import json, sys
+path, version, sha, package_url, published_at = sys.argv[1:6]
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(
+        {
+            "version": version,
+            "sha256": sha,
+            "package_url": package_url,
+            "published_at": published_at,
+        },
+        f,
+        indent=2,
+    )
+    f.write("\n")
+PY
+  else
+    cat > "$CACHE_META" <<EOF
+{"version":"$version","sha256":"$sha","package_url":"$package_url","published_at":"$published_at"}
+EOF
+  fi
+}
+
+write_update_ready_meta() {
+  local current="$1"
+  local latest="$2"
+  local package_path="$3"
+  local sha="$4"
+  local ready_meta="$CACHE_DIR/UPDATE_READY.json"
+  mkdir -p "$CACHE_DIR"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$ready_meta" "$current" "$latest" "$package_path" "$sha" <<'PY'
+import json, sys
+path, current, latest, package_path, sha = sys.argv[1:6]
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(
+        {
+            "current_version": current,
+            "latest_version": latest,
+            "package_path": package_path,
+            "sha256": sha,
+        },
+        f,
+        indent=2,
+    )
+    f.write("\n")
+PY
+  else
+    cat > "$ready_meta" <<EOF
+{"current_version":"$current","latest_version":"$latest","package_path":"$package_path","sha256":"$sha"}
+EOF
+  fi
+}
+
+latest_manifest() {
+  local out="$1"
+  download_url "$DEFAULT_MANIFEST_URL" "$out"
+}
+
+latest_version() {
+  local tmp version
+  tmp="$(mktemp "${TMPDIR:-/tmp}/pm-toolkit-latest.XXXXXX")"
+  if ! latest_manifest "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  version="$(json_get "$tmp" version)"
+  rm -f "$tmp"
+  printf '%s\n' "$version"
+}
+
+prepare_update() {
+  local current latest package_url expected_sha published_at tmp_manifest tmp_zip
+  current="$(current_version | tr -d '[:space:]')"
+  tmp_manifest="$(mktemp "${TMPDIR:-/tmp}/pm-toolkit-manifest.XXXXXX")"
+  if ! latest_manifest "$tmp_manifest"; then
+    rm -f "$tmp_manifest"
+    return 1
+  fi
+
+  latest="$(json_get "$tmp_manifest" version || true)"
+  package_url="$(json_get "$tmp_manifest" package_url || true)"
+  expected_sha="$(json_get "$tmp_manifest" sha256 || true)"
+  published_at="$(json_get "$tmp_manifest" published_at || true)"
+  rm -f "$tmp_manifest"
+
+  if [ -z "$latest" ] || ! version_gt "$latest" "$current"; then
+    return 1
+  fi
+
+  case "$package_url" in
+    ""|REPLACE_WITH_*)
+      return 1
+      ;;
+  esac
+
+  mkdir -p "$CACHE_DIR"
+  cache_paths_for_version "$latest"
+
+  if ! cache_is_valid "$latest" "$expected_sha"; then
+    tmp_zip="$CACHE_DIR/.download-${latest}.$$.zip"
+    download_url "$package_url" "$tmp_zip" || {
+      rm -f "$tmp_zip"
+      return 1
+    }
+    if ! verify_sha256 "$tmp_zip" "$expected_sha"; then
+      rm -f "$tmp_zip"
+      return 1
+    fi
+    mv -f "$tmp_zip" "$CACHE_ZIP"
+    write_cache_meta "$latest" "$expected_sha" "$package_url" "$published_at"
+  fi
+
+  write_update_ready_meta "$current" "$latest" "$CACHE_ZIP" "$expected_sha"
+  cat <<EOF
+UPDATE_READY
+current_version=$current
+latest_version=$latest
+package_path=$CACHE_ZIP
+sha256=$expected_sha
+releases_page=$RELEASES_PAGE_URL
+EOF
+}
+
+find_package_root() {
+  local extract_dir="$1"
+  local package_root=""
+
+  if [ -f "$extract_dir/VERSION" ] && [ -d "$extract_dir/skills/pm-prd" ]; then
+    printf '%s\n' "$extract_dir"
+    return 0
+  fi
+
+  while IFS= read -r dir; do
+    if [ -d "$dir/skills/pm-prd" ]; then
+      package_root="$dir"
+      break
+    fi
+  done < <(find "$extract_dir" -maxdepth 2 -type f -name VERSION -exec dirname {} \;)
+
+  printf '%s\n' "${package_root:-}"
+}
+
+remove_retired_skills() {
+  local skill
+  for skill in "${RETIRED_SKILLS[@]}"; do
+    if [ -d "$SKILLS_DIR/$skill" ]; then
+      rm -rf "$SKILLS_DIR/$skill"
+    fi
+  done
+}
+
+backup_existing_skills() {
+  local skills_root="$1"
+  local skill skill_dir
+  BACKUP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pm-toolkit-skills-backup.XXXXXX")"
+  mkdir -p "$BACKUP_DIR"
+  while IFS= read -r skill_dir; do
+    skill="$(basename "$skill_dir")"
+    if [ -d "$SKILLS_DIR/$skill" ]; then
+      cp -R "$SKILLS_DIR/$skill" "$BACKUP_DIR/$skill"
+    fi
+  done < <(find "$skills_root" -mindepth 1 -maxdepth 1 -type d | sort)
+}
+
+restore_skills_backup() {
+  local skill skill_dir
+  if [ -z "${BACKUP_DIR:-}" ] || [ ! -d "$BACKUP_DIR" ]; then
+    return 1
+  fi
+  while IFS= read -r skill_dir; do
+    skill="$(basename "$skill_dir")"
+    rm -rf "$SKILLS_DIR/$skill"
+    cp -R "$skill_dir" "$SKILLS_DIR/$skill"
+  done < <(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+}
+
+enable_sandbox_network() {
+  local helper=""
+  local candidate
+
+  for candidate in \
+    "$SKILLS_DIR/pm-prd/scripts/enable-codex-sandbox-network" \
+    "$SCRIPT_DIR/enable-codex-sandbox-network"
+  do
+    if [ -f "$candidate" ]; then
+      helper="$candidate"
+      break
+    fi
+  done
+
+  if [ -z "$helper" ]; then
+    echo "Warning: missing enable-codex-sandbox-network helper; skip Codex network config." >&2
+    return 0
+  fi
+
+  if [ -x "$helper" ]; then
+    "$helper" "$CODEX_HOME/config.toml" || true
+  else
+    /bin/bash "$helper" "$CODEX_HOME/config.toml" || true
+  fi
+}
+
+install_from_root() {
+  local package_root="$1"
+  local version_file="$package_root/VERSION"
+  local latest_file="$package_root/latest.json"
+  local skills_root="$package_root/skills"
+  local skill skill_dir
+
+  if [ ! -f "$version_file" ] || [ ! -d "$skills_root/pm-prd" ]; then
+    echo "Package is missing VERSION or skills/pm-prd." >&2
+    return 1
+  fi
+
+  mkdir -p "$SKILLS_DIR"
+  backup_existing_skills "$skills_root"
+  remove_retired_skills
+
+  if ! {
+    while IFS= read -r skill_dir; do
+      skill="$(basename "$skill_dir")"
+      rm -rf "$SKILLS_DIR/$skill"
+      cp -R "$skill_dir" "$SKILLS_DIR/$skill"
+      cp "$version_file" "$SKILLS_DIR/$skill/VERSION"
+      if [ "$skill" = "pm-prd" ] && [ -f "$latest_file" ]; then
+        cp "$latest_file" "$SKILLS_DIR/$skill/latest.json"
+      fi
+      echo "updated $skill -> $SKILLS_DIR/$skill"
+    done < <(find "$skills_root" -mindepth 1 -maxdepth 1 -type d | sort)
+  }; then
+    echo "Install failed; restoring previous skills..." >&2
+    restore_skills_backup || true
+    return 1
+  fi
+
+  if [ -n "${BACKUP_DIR:-}" ] && [ -d "$BACKUP_DIR" ]; then
+    rm -rf "$BACKUP_DIR"
+    BACKUP_DIR=""
+  fi
+
+  enable_sandbox_network
+}
+
+install_from_zip() {
+  local package="$1"
+  local package_root
+
+  if [ ! -f "$package" ] || [ "${package##*.}" != "zip" ]; then
+    echo "Unsupported package: $package" >&2
+    echo "Pass a local codex-skills-dist.zip, or run install with no arguments to use the UPDATE_READY cache." >&2
+    return 1
+  fi
+
+  TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pm-toolkit-install.XXXXXX")"
+  unzip -q "$package" -d "$TMP_DIR"
+  package_root="$(find_package_root "$TMP_DIR")"
+  if [ -z "${package_root:-}" ]; then
+    echo "Could not find package root. The zip must contain VERSION and skills/pm-prd." >&2
+    return 1
+  fi
+
+  install_from_root "$package_root"
+  echo "Done. Restart Codex or start a new conversation to load the updated skills."
+}
+
+install_cached() {
+  local ready_meta="$CACHE_DIR/UPDATE_READY.json"
+  local package_path expected_sha
+
+  if [ ! -f "$ready_meta" ]; then
+    echo "No UPDATE_READY cache found. Run pm-toolkit-version check first, or pass a local zip." >&2
+    echo "Migration download page: $RELEASES_PAGE_URL" >&2
+    return 1
+  fi
+
+  package_path="$(json_get "$ready_meta" package_path || true)"
+  expected_sha="$(json_get "$ready_meta" sha256 || true)"
+  if [ -z "$package_path" ] || [ ! -f "$package_path" ]; then
+    echo "Cached package path is missing." >&2
+    return 1
+  fi
+  if ! verify_sha256 "$package_path" "$expected_sha"; then
+    echo "Cached package failed SHA-256 verification." >&2
+    return 1
+  fi
+
+  install_from_zip "$package_path"
+  rm -f "$ready_meta"
+}
+
+case "${1:-}" in
+  current)
+    current_version
+    ;;
+  latest)
+    latest_version
+    ;;
+  check)
+    prepare_update || true
+    ;;
+  install)
+    if [ -n "${2:-}" ]; then
+      install_from_zip "$2"
+    else
+      install_cached
+    fi
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac

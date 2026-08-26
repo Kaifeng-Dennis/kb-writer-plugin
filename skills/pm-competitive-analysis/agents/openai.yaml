@@ -1,0 +1,6 @@
+interface:
+  display_name: PM Competitive Analysis
+  short_description: Produce evidence-backed feature competitive analysis reports
+    in Chinese or English as Word or HTML.
+  default_prompt: Use pm-competitive-analysis to produce a feature competitive analysis
+    report for this request.

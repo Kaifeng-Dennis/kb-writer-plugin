@@ -1,0 +1,6 @@
+interface:
+  display_name: PM Feasibility Check
+  short_description: Check product or solution feasibility in the current conversation
+    with codebase analysis, Jira, and Confluence context.
+  default_prompt: Use pm-feasibility-check to assess feasibility and implementation
+    risks for this product request.

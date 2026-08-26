@@ -1,0 +1,846 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import sys
+import tempfile
+import urllib.request
+import zipfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+DEFAULT_URL = (
+    "https://ci-jenkins.int.rclabenv.com/view/MQA/job/testit-to-kb-daily-sync/"
+    "lastSuccessfulBuild/artifact/features/*zip*/features.zip"
+)
+DEFAULT_ARTIFACT_ROOT = (
+    "https://ci-jenkins.int.rclabenv.com/view/MQA/job/testit-to-kb-daily-sync/"
+    "lastSuccessfulBuild/artifact/features"
+)
+DEFAULT_PROJECT = ""
+CASE_SUMMARY_RE = re.compile(r"^\s*-\s+([A-Z][A-Z0-9]+-\d+)\b", re.MULTILINE)
+CASE_ID_RE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
+
+
+def cache_root() -> Path:
+    override = os.environ.get("TESTIT_FEATURES_CACHE")
+    if override:
+        return Path(override).expanduser()
+    xdg = os.environ.get("XDG_CACHE_HOME")
+    base = Path(xdg).expanduser() if xdg else Path.home() / ".cache"
+    return base / "aidesk" / "testit-features"
+
+
+def project_dir(project: str) -> Path:
+    return cache_root() / project / "case"
+
+
+def manifest_path(project: str) -> Path:
+    return cache_root() / project / "manifest.json"
+
+
+def normalize_project(project: str | None) -> str:
+    value = (project or DEFAULT_PROJECT).strip()
+    if not value or "/" in value or "\\" in value or value in {".", ".."}:
+        raise SystemExit(f"Invalid project: {project!r}")
+    return value
+
+
+def download_zip(url: str) -> Path:
+    tmp = tempfile.NamedTemporaryFile(prefix="testit-features-", suffix=".zip", delete=False)
+    tmp_path = Path(tmp.name)
+    tmp.close()
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "testit-features-skill/1.0"})
+        with urllib.request.urlopen(req, timeout=90) as response, tmp_path.open("wb") as out:
+            shutil.copyfileobj(response, out)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    return tmp_path
+
+
+def fetch_text(url: str) -> str:
+    req = urllib.request.Request(url, headers={"User-Agent": "testit-features-skill/1.0"})
+    with urllib.request.urlopen(req, timeout=90) as response:
+        data = response.read()
+    return data.decode("utf-8", errors="replace")
+
+
+def artifact_root(args: argparse.Namespace) -> str:
+    return (getattr(args, "artifact_root", None) or DEFAULT_ARTIFACT_ROOT).rstrip("/")
+
+
+def view_url(args: argparse.Namespace, project: str, name: str) -> str:
+    safe_name = name.strip().lstrip("/")
+    return f"{artifact_root(args)}/{project}/case/{safe_name}/*view*/"
+
+
+def knowledge_base_url(args: argparse.Namespace, project: str) -> str:
+    return view_url(args, project, "knowledge_base.md")
+
+
+def normalize_feature_name(name: str) -> str:
+    value = name.strip().split("/")[-1]
+    if not value.endswith(".feature"):
+        value = f"{value}.feature"
+    if not value or value in {".feature", "../.feature"} or ".." in value:
+        raise SystemExit(f"Invalid feature name: {name!r}")
+    return value
+
+
+def kb_feature_blocks(text: str) -> list[dict[str, str]]:
+    lines = text.splitlines()
+    blocks: list[dict[str, str]] = []
+    current_title = ""
+    current_lines: list[str] = []
+    for line in lines:
+        if line.startswith("### "):
+            if current_title or current_lines:
+                body = "\n".join(current_lines)
+                related = ""
+                match = re.search(r"Related file:\s+`([^`]+)`", body)
+                if match:
+                    related = match.group(1)
+                blocks.append({"title": current_title, "related": related, "body": body})
+            current_title = line[4:].strip()
+            current_lines = [line]
+        elif current_title or current_lines:
+            current_lines.append(line)
+    if current_title or current_lines:
+        body = "\n".join(current_lines)
+        related = ""
+        match = re.search(r"Related file:\s+`([^`]+)`", body)
+        if match:
+            related = match.group(1)
+        blocks.append({"title": current_title, "related": related, "body": body})
+    return blocks
+
+
+def is_case_summary_line(line: str) -> bool:
+    return bool(CASE_SUMMARY_RE.search(line))
+
+
+def count_kb_case_entries(text: str) -> int:
+    return len(CASE_SUMMARY_RE.findall(text))
+
+
+def case_ids_from_text(text: str) -> list[str]:
+    seen: set[str] = set()
+    case_ids: list[str] = []
+    for case_id in CASE_SUMMARY_RE.findall(text):
+        if case_id in seen:
+            continue
+        seen.add(case_id)
+        case_ids.append(case_id)
+    return case_ids
+
+
+def compile_query(query: str, regex: bool, case_sensitive: bool) -> re.Pattern[str]:
+    flags = 0 if case_sensitive else re.IGNORECASE
+    return re.compile(query if regex else re.escape(query), flags)
+
+
+def matching_lines(block_body: str, query_re: re.Pattern[str]) -> list[str]:
+    lines: list[str] = []
+    for line in block_body.splitlines():
+        if query_re.search(line) or is_case_summary_line(line) or "Related file:" in line:
+            lines.append(line)
+    return lines
+
+
+def matching_lines_for_terms(block_body: str, query_res: list[re.Pattern[str]]) -> list[str]:
+    lines: list[str] = []
+    for line in block_body.splitlines():
+        if any(query_re.search(line) for query_re in query_res) or is_case_summary_line(line) or "Related file:" in line:
+            lines.append(line)
+    return lines
+
+
+def matched_terms_for_body(
+    block_body: str,
+    terms: list[str],
+    regex: bool,
+    case_sensitive: bool,
+) -> list[str]:
+    matched: list[str] = []
+    for term in terms:
+        if compile_query(term, regex, case_sensitive).search(block_body):
+            matched.append(term)
+    return matched
+
+
+def summarize_block(block_body: str) -> str:
+    summary_lines = []
+    for line in block_body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("Goal:", "User Story:", "Priority:", "Feature:", "Scenario:")):
+            summary_lines.append(stripped)
+    return " | ".join(summary_lines[:5])
+
+
+def impact_candidates_from_kb(
+    text: str,
+    query: str,
+    project: str,
+    max_matches: int,
+    regex: bool,
+    case_sensitive: bool,
+) -> dict:
+    query_re = compile_query(query, regex, case_sensitive)
+    candidates = []
+    for block in kb_feature_blocks(text):
+        if not query_re.search(block["body"]):
+            continue
+        candidates.append({
+            "title": block["title"],
+            "feature_file": block["related"],
+            "case_ids": case_ids_from_text(block["body"]),
+            "matched_terms": [query],
+            "matched_lines": matching_lines(block["body"], query_re),
+            "scenario_summary": summarize_block(block["body"]),
+            "full_steps_fetched": False,
+            "source_context": "Jenkins artifact lastSuccessfulBuild knowledge_base.md",
+        })
+        if len(candidates) >= max(max_matches, 1):
+            break
+
+    matched_terms = [query] if candidates else []
+    return {
+        "project": project,
+        "query": query,
+        "searched_terms": [query],
+        "matched_terms": matched_terms,
+        "no_match_terms": [] if matched_terms else [query],
+        "coverage_signal": "existing_cases_found" if candidates else "no_cases_found",
+        "confidence": "medium" if candidates else "low",
+        "candidate_count": len(candidates),
+        "candidates": candidates,
+    }
+
+
+def parse_theme(value: str) -> dict[str, list[str] | str]:
+    if "=" in value:
+        name, raw_terms = value.split("=", 1)
+        terms = [term.strip() for term in raw_terms.split("|") if term.strip()]
+    else:
+        name = value
+        terms = [value.strip()] if value.strip() else []
+    name = name.strip()
+    if not name:
+        raise SystemExit(f"Invalid theme: {value!r}")
+    if not terms:
+        terms = [name]
+    return {"name": name, "terms": terms}
+
+
+def confidence_for_terms(terms: list[str], matched_terms: list[str], candidate_count: int) -> str:
+    if candidate_count == 0:
+        return "low"
+    if len(matched_terms) == len(terms) and candidate_count >= 2:
+        return "high"
+    return "medium"
+
+
+def coverage_candidates_for_terms(
+    text: str,
+    project: str,
+    theme_name: str,
+    terms: list[str],
+    max_matches: int,
+    regex: bool,
+    case_sensitive: bool,
+) -> dict:
+    query_res = [compile_query(term, regex, case_sensitive) for term in terms]
+    candidates = []
+    matched_term_set: set[str] = set()
+    for block in kb_feature_blocks(text):
+        block_matched_terms = [
+            term for term, query_re in zip(terms, query_res)
+            if query_re.search(block["body"])
+        ]
+        if not block_matched_terms:
+            continue
+        matched_term_set.update(block_matched_terms)
+        candidates.append({
+            "title": block["title"],
+            "feature_file": block["related"],
+            "case_ids": case_ids_from_text(block["body"]),
+            "matched_terms": block_matched_terms,
+            "matched_lines": matching_lines_for_terms(block["body"], query_res),
+            "scenario_summary": summarize_block(block["body"]),
+            "full_steps_fetched": False,
+            "source_context": "Jenkins artifact lastSuccessfulBuild knowledge_base.md",
+        })
+        if len(candidates) >= max(max_matches, 1):
+            break
+
+    matched_terms = [term for term in terms if term in matched_term_set]
+    no_match_terms = [term for term in terms if term not in matched_term_set]
+    return {
+        "project": project,
+        "theme": theme_name,
+        "searched_terms": terms,
+        "matched_terms": matched_terms,
+        "no_match_terms": no_match_terms,
+        "coverage_signal": "existing_cases_found" if candidates else "no_cases_found",
+        "confidence": confidence_for_terms(terms, matched_terms, len(candidates)),
+        "candidate_count": len(candidates),
+        "candidates": candidates,
+    }
+
+
+def attach_full_scenarios(
+    args: argparse.Namespace,
+    project: str,
+    candidate: dict,
+    max_scenarios: int,
+) -> None:
+    feature_file = candidate.get("feature_file")
+    if not feature_file:
+        candidate["full_fetch_error"] = "No related feature file in knowledge_base.md"
+        return
+    try:
+        feature_text = fetch_text(view_url(args, project, normalize_feature_name(str(feature_file))))
+    except Exception as exc:
+        candidate["full_fetch_error"] = str(exc)
+        return
+
+    queries = list(candidate.get("case_ids") or []) + list(candidate.get("matched_terms") or [])
+    full_scenarios = []
+    seen: set[str] = set()
+    for query in queries:
+        for block in find_case_blocks(feature_text, str(query), regex=False, case_sensitive=False):
+            if block in seen:
+                continue
+            seen.add(block)
+            full_scenarios.append(block)
+            if len(full_scenarios) >= max(max_scenarios, 1):
+                break
+        if len(full_scenarios) >= max(max_scenarios, 1):
+            break
+
+    candidate["full_steps_fetched"] = bool(full_scenarios)
+    if full_scenarios:
+        candidate["full_scenarios"] = full_scenarios
+    else:
+        candidate["full_fetch_error"] = "Related feature file fetched, but no matching scenario block found"
+
+
+def command_impact_candidates(args: argparse.Namespace) -> int:
+    project = normalize_project(args.project)
+    text = fetch_text(knowledge_base_url(args, project))
+    payload = impact_candidates_from_kb(
+        text=text,
+        query=args.query,
+        project=project,
+        max_matches=args.max,
+        regex=args.regex,
+        case_sensitive=args.case_sensitive,
+    )
+    payload["source_url"] = knowledge_base_url(args, project)
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0 if payload["candidate_count"] else 1
+
+
+def command_remote_search(args: argparse.Namespace) -> int:
+    project = normalize_project(args.project)
+    text = fetch_text(knowledge_base_url(args, project))
+    query_re = compile_query(args.query, args.regex, args.case_sensitive)
+    matches = [block for block in kb_feature_blocks(text) if query_re.search(block["body"])]
+    if not matches:
+        print(f"No matches for {args.query!r} in remote knowledge_base.md", file=sys.stderr)
+        return 1
+    for block in matches[: max(args.max, 1)]:
+        print(f"## {block['title']}")
+        if block["related"]:
+            print(f"Related file: {block['related']}")
+        printed = 0
+        for line in block["body"].splitlines():
+            if query_re.search(line) or is_case_summary_line(line) or "Related file:" in line:
+                print(line)
+                printed += 1
+            if printed >= args.lines:
+                break
+        print()
+    print(f"source={knowledge_base_url(args, project)}", file=sys.stderr)
+    return 0
+
+
+def find_case_blocks(feature_text: str, query: str, regex: bool, case_sensitive: bool) -> list[str]:
+    query_re = compile_query(query, regex, case_sensitive)
+    lines = feature_text.splitlines()
+    starts = []
+    for i, line in enumerate(lines):
+        if line.strip().startswith("# Test Case ID:"):
+            start = i
+            if i > 0 and lines[i - 1].strip().startswith("# ============================================"):
+                start = i - 1
+            starts.append(start)
+    if not starts:
+        return [feature_text] if query_re.search(feature_text) else []
+    blocks: list[str] = []
+    for idx, start in enumerate(starts):
+        end = starts[idx + 1] if idx + 1 < len(starts) else len(lines)
+        chunk = "\n".join(lines[start:end]).strip()
+        if query_re.search(chunk):
+            blocks.append(chunk)
+    return blocks
+
+
+def command_case(args: argparse.Namespace) -> int:
+    project = normalize_project(args.project)
+    kb_text = fetch_text(knowledge_base_url(args, project))
+    query_re = compile_query(args.query, args.regex, args.case_sensitive)
+    matches = [block for block in kb_feature_blocks(kb_text) if query_re.search(block["body"])]
+    if not matches:
+        print(f"No case match for {args.query!r} in remote knowledge_base.md", file=sys.stderr)
+        return 1
+
+    for block in matches[: max(args.max, 1)]:
+        print(f"## {block['title']}")
+        if block["related"]:
+            print(f"Related file: {block['related']}")
+        for line in block["body"].splitlines():
+            if query_re.search(line) or is_case_summary_line(line):
+                print(line)
+        if args.full and block["related"]:
+            feature_name = normalize_feature_name(block["related"])
+            feature_text = fetch_text(view_url(args, project, feature_name))
+            case_blocks = find_case_blocks(feature_text, args.query, args.regex, args.case_sensitive)
+            for case_block in case_blocks[: max(args.full_max, 1)]:
+                print("\n### Full scenario")
+                print(case_block)
+        print()
+    print(f"source={knowledge_base_url(args, project)}", file=sys.stderr)
+    return 0
+
+
+def command_remote_show(args: argparse.Namespace) -> int:
+    project = normalize_project(args.project)
+    feature_name = normalize_feature_name(args.feature)
+    text = fetch_text(view_url(args, project, feature_name))
+    lines = text.splitlines()
+    start = max(args.line[0] if args.line else 1, 1)
+    end = args.line[1] if args.line else len(lines)
+    end = min(end, len(lines))
+    for index in range(start, end + 1):
+        print(f"{index}: {lines[index - 1]}")
+    print(f"source={view_url(args, project, feature_name)}", file=sys.stderr)
+    return 0
+
+
+def command_remote_stats(args: argparse.Namespace) -> int:
+    project = normalize_project(args.project)
+    text = fetch_text(knowledge_base_url(args, project))
+    blocks = kb_feature_blocks(text)
+    test_cases = count_kb_case_entries(text)
+    print(json.dumps({
+        "project": project,
+        "feature_modules": len(blocks),
+        "test_cases_in_knowledge_base": test_cases,
+        "source_url": knowledge_base_url(args, project),
+    }, indent=2, sort_keys=True))
+    return 0
+
+
+def command_coverage_matrix(args: argparse.Namespace) -> int:
+    projects = [normalize_project(project) for project in args.project]
+    themes = [parse_theme(theme) for theme in args.theme]
+    results = []
+
+    for project in projects:
+        text = fetch_text(knowledge_base_url(args, project))
+        for theme in themes:
+            payload = coverage_candidates_for_terms(
+                text=text,
+                project=project,
+                theme_name=str(theme["name"]),
+                terms=list(theme["terms"]),
+                max_matches=args.max,
+                regex=args.regex,
+                case_sensitive=args.case_sensitive,
+            )
+            payload["source_url"] = knowledge_base_url(args, project)
+            if args.fetch_full:
+                for candidate in payload["candidates"][: max(args.full_candidate_max, 1)]:
+                    attach_full_scenarios(
+                        args=args,
+                        project=project,
+                        candidate=candidate,
+                        max_scenarios=args.full_scenario_max,
+                    )
+            results.append(payload)
+
+    output = {
+        "projects": projects,
+        "themes": themes,
+        "result_count": len(results),
+        "results": results,
+    }
+    print(json.dumps(output, indent=2, sort_keys=True))
+    return 0 if any(result["candidate_count"] for result in results) else 1
+
+
+def should_extract(name: str, project: str, include_metadata: bool) -> bool:
+    prefix = f"features/{project}/case/"
+    if not name.startswith(prefix):
+        return False
+    if name.endswith("/"):
+        return False
+    rel = name[len(prefix):]
+    if not rel or "/" in rel:
+        return False
+    if rel.endswith(".feature") or rel == "knowledge_base.md":
+        return True
+    if include_metadata and rel == ".sync_metadata.json":
+        return True
+    return False
+
+
+def safe_extract_member(zf: zipfile.ZipFile, member: str, target_root: Path, project: str) -> int:
+    prefix = f"features/{project}/case/"
+    rel = member[len(prefix):]
+    if not rel or "/" in rel or rel in {".", ".."} or ".." in rel:
+        return 0
+    target = target_root / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with zf.open(member) as src, target.open("wb") as out:
+        shutil.copyfileobj(src, out)
+    return target.stat().st_size
+
+
+def sync(args: argparse.Namespace) -> int:
+    project = normalize_project(args.project)
+    url = args.url or DEFAULT_URL
+    target = project_dir(project)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    zip_path = download_zip(url)
+    feature_count = 0
+    total_bytes = 0
+    extracted_names: list[str] = []
+    try:
+        staging = target.parent / ".case.tmp"
+        if staging.exists():
+            shutil.rmtree(staging)
+        staging.mkdir(parents=True)
+
+        with zipfile.ZipFile(zip_path) as zf:
+            for member in zf.namelist():
+                if not should_extract(member, project, args.include_metadata):
+                    continue
+                size = safe_extract_member(zf, member, staging, project)
+                if size:
+                    rel = member.rsplit("/", 1)[-1]
+                    extracted_names.append(rel)
+                    total_bytes += size
+                    if rel.endswith(".feature"):
+                        feature_count += 1
+
+        if feature_count == 0:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise SystemExit(f"No .feature files found for project {project!r} in {url}")
+
+        if target.exists():
+            shutil.rmtree(target)
+        staging.rename(target)
+
+        manifest = {
+            "project": project,
+            "source_url": url,
+            "synced_at": datetime.now(timezone.utc).isoformat(),
+            "feature_files": feature_count,
+            "extracted_files": len(extracted_names),
+            "bytes": total_bytes,
+            "cache_dir": str(target),
+        }
+        manifest_path(project).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    finally:
+        zip_path.unlink(missing_ok=True)
+
+    print(f"synced project={project} feature_files={feature_count} cache={target}")
+    return 0
+
+
+def ensure_cache(args: argparse.Namespace) -> Path:
+    project = normalize_project(args.project)
+    target = project_dir(project)
+    if target.exists() and any(target.glob("*.feature")):
+        return target
+    if getattr(args, "cached_only", False):
+        raise SystemExit(f"No cached .feature files for project {project!r}: {target}")
+    sync_args = argparse.Namespace(
+        project=project,
+        url=getattr(args, "url", None) or DEFAULT_URL,
+        include_metadata=False,
+    )
+    sync(sync_args)
+    return target
+
+
+def iter_features(root: Path) -> list[Path]:
+    return sorted(root.glob("*.feature"), key=lambda p: p.name.lower())
+
+
+def load_manifest(project: str) -> dict:
+    path = manifest_path(project)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return {}
+
+
+def command_list(args: argparse.Namespace) -> int:
+    root = ensure_cache(args)
+    features = iter_features(root)
+    for path in features:
+        if args.full_path:
+            print(path)
+        else:
+            print(path.name)
+    print(f"\nfeature_files={len(features)} cache={root}", file=sys.stderr)
+    return 0
+
+
+def read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def command_search_cache(args: argparse.Namespace) -> int:
+    root = ensure_cache(args)
+    pattern = args.query
+    flags = 0 if args.case_sensitive else re.IGNORECASE
+    regex = re.compile(pattern if args.regex else re.escape(pattern), flags)
+    max_matches = max(args.max, 1)
+
+    matches = 0
+    for path in iter_features(root):
+        text = read_text(path)
+        if not regex.search(path.name) and not regex.search(text):
+            continue
+        matches += 1
+        print(f"## {path.name}")
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            if regex.search(line):
+                print(f"{line_no}: {line}")
+        print()
+        if matches >= max_matches:
+            break
+
+    if matches == 0:
+        print(f"No matches for {pattern!r} in {root}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def resolve_feature(root: Path, target: str) -> Path:
+    raw = target.strip()
+    candidates = [
+        root / raw,
+        root / (raw if raw.endswith(".feature") else f"{raw}.feature"),
+    ]
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+
+    needle = raw.lower()
+    if needle.endswith(".feature"):
+        needle = needle[:-8]
+    matches = [
+        path for path in iter_features(root)
+        if path.stem.lower() == needle or needle in path.name.lower()
+    ]
+    if not matches:
+        raise SystemExit(f"Feature not found: {target!r}")
+    if len(matches) > 1:
+        shown = "\n".join(f"- {p.name}" for p in matches[:20])
+        raise SystemExit(f"Feature is ambiguous: {target!r}\n{shown}")
+    return matches[0]
+
+
+def command_show_cache(args: argparse.Namespace) -> int:
+    root = ensure_cache(args)
+    path = resolve_feature(root, args.feature)
+    lines = read_text(path).splitlines()
+    start = max(args.line[0] if args.line else 1, 1)
+    end = args.line[1] if args.line else len(lines)
+    end = min(end, len(lines))
+    if args.path:
+        print(path)
+    for index in range(start, end + 1):
+        print(f"{index}: {lines[index - 1]}")
+    return 0
+
+
+def command_stats(args: argparse.Namespace) -> int:
+    project = normalize_project(args.project)
+    root = ensure_cache(args)
+    features = iter_features(root)
+    scenario_re = re.compile(r"^\s*Scenario")
+    case_id_re = re.compile(r"^\s*# Test Case ID:")
+    external_re = re.compile(r"^\s*# Test Case External ID:")
+    tag_re = re.compile(r"^\s*@TestCase_")
+    totals = {
+        "feature_files": len(features),
+        "scenarios": 0,
+        "test_case_ids": 0,
+        "external_ids": 0,
+        "test_case_tags": 0,
+        "bytes": 0,
+    }
+    for path in features:
+        text = read_text(path)
+        totals["bytes"] += path.stat().st_size
+        for line in text.splitlines():
+            if scenario_re.search(line):
+                totals["scenarios"] += 1
+            if case_id_re.search(line):
+                totals["test_case_ids"] += 1
+            if external_re.search(line):
+                totals["external_ids"] += 1
+            if tag_re.search(line):
+                totals["test_case_tags"] += 1
+
+    manifest = load_manifest(project)
+    print(json.dumps({
+        "project": project,
+        "cache_dir": str(root),
+        "source_url": manifest.get("source_url", DEFAULT_URL),
+        "synced_at": manifest.get("synced_at"),
+        **totals,
+    }, indent=2, sort_keys=True))
+    return 0
+
+
+def command_where(args: argparse.Namespace) -> int:
+    project = normalize_project(args.project)
+    root = ensure_cache(args)
+    print(root)
+    manifest = load_manifest(project)
+    if manifest:
+        print(json.dumps(manifest, indent=2, sort_keys=True))
+    return 0
+
+
+def add_common(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--project", required=True, help="Jenkins artifact project folder")
+    parser.add_argument("--url", default=DEFAULT_URL, help="Jenkins features.zip artifact URL")
+    parser.add_argument("--artifact-root", default=DEFAULT_ARTIFACT_ROOT, help="Jenkins artifact features root URL")
+    parser.add_argument("--cached-only", action="store_true", help="Do not auto-sync if cache is missing")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Fetch and inspect Jenkins artifact .feature files.")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    remote_search_parser = sub.add_parser("remote-search", help="Search latest remote knowledge_base.md without caching all features")
+    add_common(remote_search_parser)
+    remote_search_parser.add_argument("query")
+    remote_search_parser.add_argument("--max", type=int, default=10, help="Maximum matching feature modules to print")
+    remote_search_parser.add_argument("--lines", type=int, default=30, help="Maximum lines per matching module")
+    remote_search_parser.add_argument("--regex", action="store_true", help="Treat query as a regular expression")
+    remote_search_parser.add_argument("--case-sensitive", action="store_true")
+    remote_search_parser.set_defaults(func=command_remote_search)
+
+    case_parser = sub.add_parser("case", help="Find case info from latest Jenkins artifact")
+    add_common(case_parser)
+    case_parser.add_argument("query", help="Case ID, Jira ID, user story, or text")
+    case_parser.add_argument("--max", type=int, default=5, help="Maximum matching feature modules to print")
+    case_parser.add_argument("--full", action="store_true", help="Fetch related feature file and print full matching scenario")
+    case_parser.add_argument("--full-max", type=int, default=3, help="Maximum full scenarios per feature")
+    case_parser.add_argument("--regex", action="store_true")
+    case_parser.add_argument("--case-sensitive", action="store_true")
+    case_parser.set_defaults(func=command_case)
+
+    impact_parser = sub.add_parser("impact-candidates", help="Print structured related case candidates from latest Jenkins artifact")
+    add_common(impact_parser)
+    impact_parser.add_argument("query", help="Requirement, scenario, Jira ID, case ID, user story, or text")
+    impact_parser.add_argument("--max", type=int, default=10, help="Maximum matching feature modules to print")
+    impact_parser.add_argument("--regex", action="store_true")
+    impact_parser.add_argument("--case-sensitive", action="store_true")
+    impact_parser.set_defaults(func=command_impact_candidates)
+
+    matrix_parser = sub.add_parser("coverage-matrix", help="Search multiple projects and themes, then print JSON coverage matrix")
+    matrix_parser.add_argument("--project", action="append", required=True, help="Jenkins artifact project folder; repeat for multiple projects")
+    matrix_parser.add_argument("--artifact-root", default=DEFAULT_ARTIFACT_ROOT, help="Jenkins artifact features root URL")
+    matrix_parser.add_argument("--theme", action="append", required=True, help="Theme search as 'Theme name=term1|term2'; repeat for multiple themes")
+    matrix_parser.add_argument("--max", type=int, default=5, help="Maximum matching feature modules per project/theme")
+    matrix_parser.add_argument("--regex", action="store_true", help="Treat theme terms as regular expressions")
+    matrix_parser.add_argument("--case-sensitive", action="store_true")
+    matrix_parser.add_argument("--fetch-full", action="store_true", help="Fetch related .feature files for top candidates")
+    matrix_parser.add_argument("--full-candidate-max", type=int, default=2, help="Maximum candidates per project/theme to fetch with --fetch-full")
+    matrix_parser.add_argument("--full-scenario-max", type=int, default=2, help="Maximum full scenario blocks per fetched candidate")
+    matrix_parser.set_defaults(func=command_coverage_matrix)
+
+    remote_show_parser = sub.add_parser("remote-show", help="Show one latest remote .feature file")
+    add_common(remote_show_parser)
+    remote_show_parser.add_argument("feature", help="Feature filename, path, or stem")
+    remote_show_parser.add_argument("--line", type=int, nargs=2, default=None, metavar=("START", "END"), help="Line range")
+    remote_show_parser.set_defaults(func=command_remote_show)
+
+    remote_stats_parser = sub.add_parser("remote-stats", help="Print latest remote knowledge_base.md statistics")
+    add_common(remote_stats_parser)
+    remote_stats_parser.set_defaults(func=command_remote_stats)
+
+    sync_parser = sub.add_parser("sync", help="Download and cache project feature files")
+    add_common(sync_parser)
+    sync_parser.add_argument("--include-metadata", action="store_true", help="Also extract .sync_metadata.json")
+    sync_parser.set_defaults(func=sync)
+
+    list_parser = sub.add_parser("list", help="List cached .feature files")
+    add_common(list_parser)
+    list_parser.add_argument("--full-path", action="store_true", help="Print absolute paths")
+    list_parser.set_defaults(func=command_list)
+
+    search_parser = sub.add_parser("search-cache", aliases=["search"], help="Search cached feature filenames and file content")
+    add_common(search_parser)
+    search_parser.add_argument("query")
+    search_parser.add_argument("--max", type=int, default=20, help="Maximum matching files to print")
+    search_parser.add_argument("--regex", action="store_true", help="Treat query as a regular expression")
+    search_parser.add_argument("--case-sensitive", action="store_true")
+    search_parser.set_defaults(func=command_search_cache)
+
+    show_parser = sub.add_parser("show-cache", aliases=["show"], help="Show one cached feature file")
+    add_common(show_parser)
+    show_parser.add_argument("feature", help="Feature filename, path, or stem")
+    show_parser.add_argument("--line", type=int, nargs=2, default=None, metavar=("START", "END"), help="Line range")
+    show_parser.add_argument("--path", action="store_true", help="Print resolved path before content")
+    show_parser.set_defaults(func=command_show_cache)
+
+    stats_parser = sub.add_parser("stats", help="Print project feature statistics as JSON")
+    add_common(stats_parser)
+    stats_parser.set_defaults(func=command_stats)
+
+    where_parser = sub.add_parser("where", help="Print cache location and manifest")
+    add_common(where_parser)
+    where_parser.set_defaults(func=command_where)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        return int(args.func(args) or 0)
+    except KeyboardInterrupt:
+        print("Interrupted", file=sys.stderr)
+        return 130
+    except urllib.error.URLError as exc:
+        print(f"Download failed: {exc}", file=sys.stderr)
+        return 2
+    except zipfile.BadZipFile:
+        print("Downloaded artifact is not a valid zip file", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

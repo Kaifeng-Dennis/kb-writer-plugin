@@ -1,0 +1,6 @@
+interface:
+  display_name: Jenkins Feature Coverage
+  short_description: Search Jenkins artifact .feature and knowledge_base.md files
+    for project case coverage.
+  default_prompt: Use testit-features to search Jenkins artifact .feature coverage
+    for this case, Jira ID, feature, or scenario.

@@ -1,0 +1,6 @@
+interface:
+  display_name: PM PRD
+  short_description: Turn PM ideas or drafts into structured PRDs in the current conversation
+    with codebase analysis, MCP context, and critic rules.
+  default_prompt: Use pm-prd to turn this product idea or draft into a developer-ready
+    PRD.

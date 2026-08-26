@@ -1,0 +1,320 @@
+{
+  "schema_version": 1,
+  "projects": [
+    {
+      "project_id": "mthor",
+      "display_name": "mThor",
+      "description": "mThor is the mobile application. include mobile Video.",
+      "aliases": [
+        "mthor",
+        "mobile",
+        "mthor mobile",
+        "mobile video",
+        "mobile app, including mobile video",
+        "rcv mobile"
+      ],
+      "codebase_project": "mthor",
+      "testit_supported": true,
+      "testit_project": "mThor"
+    },
+    {
+      "project_id": "fiji",
+      "display_name": "Jupiter",
+      "description": "FIJI is the Jupiter desktop/web application.",
+      "aliases": [
+        "fiji",
+        "jupiter",
+        "jupiter web",
+        "jupiter-web"
+      ],
+      "codebase_project": "fiji",
+      "testit_supported": true,
+      "testit_project": "jupiter"
+    },
+    {
+      "project_id": "jvd",
+      "display_name": "JVD (Web Video)",
+      "description": "JVD is the RCV web video experience integrated with Jupiter.",
+      "aliases": [
+        "jvd",
+        "web video"
+      ],
+      "codebase_project": "jvd",
+      "testit_supported": true,
+      "testit_project": "jupiter"
+    },
+    {
+      "project_id": "rcv_webinar",
+      "display_name": "RCV Webinar",
+      "description": "RCV Webinar spans the web client, host client, product application, and SDK engine.",
+      "aliases": [
+        "rcv_webinar",
+        "RWC",
+        "WHC",
+        "WHP",
+        "WAC",
+        "webinar"
+      ],
+      "codebase_project": "rcv_webinar",
+      "testit_supported": true,
+      "testit_project": "rcw"
+    },
+    {
+      "project_id": "rcvnc",
+      "display_name": "RCV Native Client",
+      "description": "RCV Native Client covers macOS, Windows, and Web native-client surfaces.",
+      "aliases": [
+        "rcvnc",
+        "native client",
+        "rcv native client"
+      ],
+      "codebase_project": "rcvnc",
+      "testit_supported": false,
+      "testit_project": null
+    },
+    {
+      "project_id": "rcvrooms",
+      "display_name": "RCV Rooms",
+      "description": "RCV Rooms is the mobile Rooms client experience.",
+      "aliases": [
+        "rcvrooms",
+        "rooms",
+        "mobile rooms"
+      ],
+      "codebase_project": "rcvrooms",
+      "testit_supported": false,
+      "testit_project": null
+    },
+    {
+      "project_id": "integration",
+      "display_name": "Integration",
+      "description": "RingCentral Integration Applications monorepo.",
+      "aliases": [
+        "integration"
+      ],
+      "codebase_project": "integration",
+      "testit_supported": true,
+      "testit_project": "integration"
+    },
+    {
+      "project_id": "sw",
+      "display_name": "SW",
+      "description": "RingCentral Service Web",
+      "aliases": [
+        "sw",
+        "Service Web",
+        "service-web"
+      ],
+      "codebase_project": "SW",
+      "testit_supported": true,
+      "testit_project": "web"
+    },
+    {
+      "project_id": "air",
+      "display_name": "AIR (IVA)",
+      "description": "AIR (IVA) is a multi-repository, multi-language system for running LLM-powered virtual assistants across voice and chat. It combines an Assistant Runtime (call/chat orchestration), an Agent Service, State/Memory services (Scala/ZIO + Postgres/Redis + gRPC), Calendar/Lead integrations (Spring Boot), a Traffic Manager (failover/routing control), a React micro-frontend UI, shared protobuf contracts,",
+      "aliases": [
+        "air",
+        "iva",
+        "ai receptionist"
+      ],
+      "codebase_project": "air",
+      "testit_supported": true,
+      "testit_project": "air"
+    },
+    {
+      "project_id": "nova",
+      "display_name": "Nova",
+      "description": "Nova is a multi-service RingCentral AI assistant platform for configuring assistants, running conversations, adapting messaging channels, persisting conversation artifacts.",
+      "aliases": [
+        "nova",
+        "agentic ai platform"
+      ],
+      "codebase_project": "nova",
+      "testit_supported": true,
+      "testit_project": "nova"
+    },
+    {
+      "project_id": "rcx_crm",
+      "display_name": "RCX CRM",
+      "description": "RingCX CRM subsystem. Search is limited to the 1 repositories registered for this RCX subgroup.",
+      "aliases": [
+        "rcx_crm",
+        "rcx crm",
+        "rcx-crm"
+      ],
+      "codebase_project": "rcx_crm",
+      "testit_supported": true,
+      "testit_project": "rcx"
+    },
+    {
+      "project_id": "rcx_cxwf",
+      "display_name": "RCX CXWF",
+      "description": "RingCX CXWF subsystem. Search is limited to the 7 repositories registered for this RCX subgroup.",
+      "aliases": [
+        "rcx_cxwf",
+        "rcx cxwf",
+        "rcx-cxwf"
+      ],
+      "codebase_project": "rcx_cxwf",
+      "testit_supported": true,
+      "testit_project": "rcx"
+    },
+    {
+      "project_id": "rcx_delivery",
+      "display_name": "RCX Delivery",
+      "description": "RingCX Delivery subsystem. Search is limited to the 5 repositories registered for this RCX subgroup.",
+      "aliases": [
+        "rcx_delivery",
+        "rcx delivery",
+        "rcx-delivery"
+      ],
+      "codebase_project": "rcx_delivery",
+      "testit_supported": true,
+      "testit_project": "rcx"
+    },
+    {
+      "project_id": "rcx_digital",
+      "display_name": "RCX Digital",
+      "description": "RingCX Digital subsystem. Search is limited to the 12 repositories registered for this RCX subgroup.",
+      "aliases": [
+        "rcx_digital",
+        "rcx digital",
+        "rcx-digital"
+      ],
+      "codebase_project": "rcx_digital",
+      "testit_supported": true,
+      "testit_project": "rcx"
+    },
+    {
+      "project_id": "rcx_evai",
+      "display_name": "RCX EVAI",
+      "description": "RingCX EVAI subsystem. Search is limited to the 4 repositories registered for this RCX subgroup.",
+      "aliases": [
+        "rcx_evai",
+        "rcx evai",
+        "rcx-evai"
+      ],
+      "codebase_project": "rcx_evai",
+      "testit_supported": true,
+      "testit_project": "rcx"
+    },
+    {
+      "project_id": "rcx_eval",
+      "display_name": "RCX EVAL",
+      "description": "RingCX EVAL subsystem. Search is limited to the 12 repositories registered for this RCX subgroup.",
+      "aliases": [
+        "rcx_eval",
+        "rcx eval",
+        "rcx-eval"
+      ],
+      "codebase_project": "rcx_eval",
+      "testit_supported": true,
+      "testit_project": "rcx"
+    },
+    {
+      "project_id": "rcx_evcl",
+      "display_name": "RCX EVCL",
+      "description": "RingCX EVCL subsystem. Search is limited to the 8 repositories registered for this RCX subgroup.",
+      "aliases": [
+        "rcx_evcl",
+        "rcx evcl",
+        "rcx-evcl"
+      ],
+      "codebase_project": "rcx_evcl",
+      "testit_supported": true,
+      "testit_project": "rcx"
+    },
+    {
+      "project_id": "rcx_evcr",
+      "display_name": "RCX EVCR",
+      "description": "RingCX EVCR subsystem. Search is limited to the 23 repositories registered for this RCX subgroup.",
+      "aliases": [
+        "rcx_evcr",
+        "rcx evcr",
+        "rcx-evcr"
+      ],
+      "codebase_project": "rcx_evcr",
+      "testit_supported": true,
+      "testit_project": "rcx"
+    },
+    {
+      "project_id": "rcx_evtm",
+      "display_name": "RCX EVTM",
+      "description": "RingCX EVTM subsystem. Search is limited to the 4 repositories registered for this RCX subgroup.",
+      "aliases": [
+        "rcx_evtm",
+        "rcx evtm",
+        "rcx-evtm"
+      ],
+      "codebase_project": "rcx_evtm",
+      "testit_supported": true,
+      "testit_project": "rcx"
+    },
+    {
+      "project_id": "rcx_evtr",
+      "display_name": "RCX EVTR",
+      "description": "RingCX EVTR subsystem. Search is limited to the 1 repositories registered for this RCX subgroup.",
+      "aliases": [
+        "rcx_evtr",
+        "rcx evtr",
+        "rcx-evtr"
+      ],
+      "codebase_project": "rcx_evtr",
+      "testit_supported": true,
+      "testit_project": "rcx"
+    },
+    {
+      "project_id": "rcx_lib",
+      "display_name": "RCX Lib",
+      "description": "RingCX Lib subsystem. Search is limited to the 6 repositories registered for this RCX subgroup.",
+      "aliases": [
+        "rcx_lib",
+        "rcx lib",
+        "rcx-lib"
+      ],
+      "codebase_project": "rcx_lib",
+      "testit_supported": true,
+      "testit_project": "rcx"
+    },
+    {
+      "project_id": "rcx_platform",
+      "display_name": "RCX Platform",
+      "description": "RingCX Platform subsystem. Search is limited to the 4 repositories registered for this RCX subgroup.",
+      "aliases": [
+        "rcx_platform",
+        "rcx platform",
+        "rcx-platform"
+      ],
+      "codebase_project": "rcx_platform",
+      "testit_supported": true,
+      "testit_project": "rcx"
+    },
+    {
+      "project_id": "rcx_tools",
+      "display_name": "RCX Tools",
+      "description": "RingCX Tools subsystem. Search is limited to the 2 repositories registered for this RCX subgroup.",
+      "aliases": [
+        "rcx_tools",
+        "rcx tools",
+        "rcx-tools"
+      ],
+      "codebase_project": "rcx_tools",
+      "testit_supported": true,
+      "testit_project": "rcx"
+    },
+    {
+      "project_id": "rcx_ui",
+      "display_name": "RCX UI",
+      "description": "RingCX UI subsystem. Search is limited to the 9 repositories registered for this RCX subgroup.",
+      "aliases": [
+        "rcx_ui",
+        "rcx ui",
+        "rcx-ui"
+      ],
+      "codebase_project": "rcx_ui",
+      "testit_supported": true,
+      "testit_project": "rcx"
+    }
+  ]
+}
