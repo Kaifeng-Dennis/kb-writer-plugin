@@ -35,8 +35,8 @@ Present the current state and suggest the next action based on what the ticket a
 
 - **`missing_requirement` or `needs_input`**: The ticket is paused waiting for requirement details. Offer to:
   - Show the current manifest: `GET /v1/workflow/tickets/{key}/manifest`
-  - Update requirements: `PATCH /v1/workflow/tickets/{key}/manifest/decision/requirements` with `{"requirements": "<details>"}`
-  - Update context: `PATCH /v1/workflow/tickets/{key}/manifest/decision/context` with `{"context": "<details>"}`
+  - Update requirements: `PATCH /v1/workflow/tickets/{key}/manifest/decision/requirements` with `{"expectedManifestId": <currentManifestId>, "acceptanceChecks": ["<check>", ...], "constraints": ["<constraint>", ...]}`
+  - Update context: `PATCH /v1/workflow/tickets/{key}/manifest/decision/context` with `{"expectedManifestId": <currentManifestId>, "contexts": ["<detail>", ...]}`
   - Reanalyze with new context: `POST /v1/workflow/tickets/{key}/reanalyze`
   - Start drafts when ready: `POST /v1/workflow/tickets/{key}/manifest/materialize`
 
