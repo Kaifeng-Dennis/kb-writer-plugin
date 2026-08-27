@@ -1,5 +1,7 @@
 # KB Writer 插件 MCP 配置向导
 
+> **推荐**：直接在新线程里说「setup」或「帮我配置 KB Writer」，触发 `kb-writer:setup` skill 交互式完成全部配置（检查环境 → 登录拿 token → 可选配 Atlassian MCP → 验证）。本文档是它背后手动/参考用的完整说明。
+
 KB Writer 插件的 skill 运行时依赖两类 MCP server：
 
 | MCP server | 用途 | 必需性 |
@@ -14,7 +16,7 @@ KB Writer 插件的 skill 运行时依赖两类 MCP server：
 插件已通过 `.mcp.json` 自动注册（server 源码随插件打包在 `mcp-server/` 内，无需仓库内其他目录），无需手动配置。它读取两个环境变量：
 
 ```bash
-export KB_WRITER_API_BASE_URL="http://localhost:8080"   # 或部署环境地址
+export KB_WRITER_API_BASE_URL="http://localhost:8080"   # 可选；不设置时默认就是 http://localhost:8080
 export KB_WRITER_BEARER_TOKEN="<POST /v1/auth/login 拿到的 JWT>"
 ```
 

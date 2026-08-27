@@ -1,6 +1,6 @@
 {
   "name": "kb-writer",
-  "version": "0.1.0+codex.20260827015058",
+  "version": "0.1.0+codex.20260827021238",
   "description": "Create KB Writer intent workspaces from completed local sessions, with PM-reviewed completion envelopes. Bundles the PM Toolkit skill pack (pm-prd, pm-ask-code, pm-critic-check, pm-feasibility-check, pm-competitive-analysis, pm-data-tracking, pm-feature-control-advisor, testit-features) as vendored skills.",
   "author": {
     "name": "Smart KB team"

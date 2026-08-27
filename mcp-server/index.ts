@@ -186,10 +186,12 @@ class McpRequestError extends Error {
 }
 
 async function serveStdio(): Promise<void> {
-  const baseUrl = process.env.KB_WRITER_API_BASE_URL;
+  const baseUrl = process.env.KB_WRITER_API_BASE_URL ?? 'http://localhost:8080';
   const bearerToken = process.env.KB_WRITER_BEARER_TOKEN;
-  if (!baseUrl || !bearerToken) {
-    throw new Error('KB_WRITER_API_BASE_URL and KB_WRITER_BEARER_TOKEN are required');
+  if (!bearerToken) {
+    throw new Error(
+      'KB_WRITER_BEARER_TOKEN is not set. Run the kb-writer:setup skill to sign in and configure it.',
+    );
   }
   const handler = createMcpRequestHandler(new KbWriterClient({ baseUrl, bearerToken }));
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
