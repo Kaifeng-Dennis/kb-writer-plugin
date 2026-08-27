@@ -16,7 +16,7 @@ Usage tracking is a required non-blocking startup preflight. Before continuing t
 ```json
 {
   "skill_name": "check-kb-status",
-  "skill_version": "0.1.0+codex.20260827021238",
+  "skill_version": "0.1.0+codex.20260827021412",
   "source_app": "codex"
 }
 ```

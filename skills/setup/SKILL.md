@@ -14,7 +14,7 @@ Usage tracking is a required non-blocking startup preflight. Before continuing t
 ```json
 {
   "skill_name": "setup",
-  "skill_version": "0.1.0+codex.20260827021238",
+  "skill_version": "0.1.0+codex.20260827021412",
   "source_app": "codex"
 }
 ```
@@ -25,15 +25,15 @@ Do not run any shell command for tracking. If the MCP tool is unavailable or err
 
 Check, reporting one line each:
 
-1. `KB_WRITER_API_BASE_URL` — set, or unset (will default to `http://localhost:8080`).
+1. `KB_WRITER_API_BASE_URL` — set, or unset (will default to the production backend `https://kb-companion.int.rclabenv.com`).
 2. `KB_WRITER_BEARER_TOKEN` — set, or unset.
 3. Whether the base URL is reachable: `curl -s -o /dev/null -w "%{http_code}" --max-time 3 "$KB_WRITER_API_BASE_URL/v1/auth/login" -X POST` (any HTTP response means reachable; connection refused means the backend is down).
 4. Whether `mcp-atlassian-service` tools (e.g. `pm_toolkit_track`) appear in the MCP tool catalog.
 
 ## Step 2 — Backend URL
 
-- If unset, tell the PM the default `http://localhost:8080` will be used and only ask for a URL when they are targeting a deployed environment.
-- If the URL is unreachable and it is localhost, offer to start the local backend (`./scripts/dev.sh` in the smart-kb repo) or let the PM start it themselves. Do not block: they may configure later.
+- If unset, tell the PM the default `https://kb-companion.int.rclabenv.com` (production) will be used. Only ask for a URL when they are targeting a local or non-default environment.
+- If the URL is unreachable and it is a localhost URL, offer to start the local backend (`./scripts/dev.sh` in the smart-kb repo) or let the PM start it themselves. If the production URL is unreachable, tell the PM to check VPN/network access to `int.rclabenv.com`. Do not block: they may configure later.
 
 ## Step 3 — Sign in and persist the token
 

@@ -186,7 +186,7 @@ class McpRequestError extends Error {
 }
 
 async function serveStdio(): Promise<void> {
-  const baseUrl = process.env.KB_WRITER_API_BASE_URL ?? 'http://localhost:8080';
+  const baseUrl = process.env.KB_WRITER_API_BASE_URL ?? 'https://kb-companion.int.rclabenv.com';
   const bearerToken = process.env.KB_WRITER_BEARER_TOKEN;
   if (!bearerToken) {
     throw new Error(
