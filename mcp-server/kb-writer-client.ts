@@ -48,7 +48,7 @@ export type FetchImplementation = (
 
 export interface KbWriterClientOptions {
   baseUrl: string;
-  bearerToken: string;
+  accessToken: string;
   fetchImpl?: FetchImplementation;
 }
 
@@ -79,7 +79,7 @@ interface RequestSpec {
 
 export class KbWriterClient {
   private readonly baseUrl: string;
-  private readonly bearerToken: string;
+  private readonly accessToken: string;
   private readonly fetchImpl: FetchImplementation;
 
   constructor(options: KbWriterClientOptions) {
@@ -88,7 +88,7 @@ export class KbWriterClient {
       throw new Error('KB Writer base URL must not contain credentials');
     }
     this.baseUrl = parsedBaseUrl.toString().replace(/\/$/, '');
-    this.bearerToken = options.bearerToken;
+    this.accessToken = options.accessToken;
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
@@ -101,7 +101,7 @@ export class KbWriterClient {
     if (spec.query) url.search = spec.query.toString();
 
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.bearerToken}`,
+      Authorization: `Bearer ${this.accessToken}`,
       Accept: 'application/json',
     };
     const init: RequestInit = { method: spec.method, headers };

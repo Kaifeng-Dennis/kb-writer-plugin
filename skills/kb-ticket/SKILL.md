@@ -24,7 +24,7 @@ Do not run any shell command for tracking, including legacy local tracker script
 
 ## Connectivity
 
-Requires `KB_WRITER_API_BASE_URL` and `KB_WRITER_BEARER_TOKEN` in the environment. If the `kb-writer` MCP server is registered, prefer its tools over raw HTTP.
+Requires `KB_WRITER_API_BASE_URL` and `KB_WRITER_ACCESS_TOKEN` in the environment. If the `kb-writer` MCP server is registered, prefer its tools over raw HTTP.
 
 ## Resolve
 
@@ -33,11 +33,11 @@ Ask the PM for the Jira key (for example `KB-30499`). Then call both endpoints t
 ```bash
 # Ticket intake state (always available for existing tickets)
 curl -sS "$KB_WRITER_API_BASE_URL/v1/workflow/tickets/$JIRA_KEY" \
-  -H "Authorization: Bearer $KB_WRITER_BEARER_TOKEN"
+  -H "Authorization: Bearer $KB_WRITER_ACCESS_TOKEN"
 
 # Workspace binding (may not exist)
 curl -sS "$KB_WRITER_API_BASE_URL/v1/intent-workspaces/resolve/jira/$JIRA_KEY" \
-  -H "Authorization: Bearer $KB_WRITER_BEARER_TOKEN"
+  -H "Authorization: Bearer $KB_WRITER_ACCESS_TOKEN"
 ```
 
 ## Branch by state

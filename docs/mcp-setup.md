@@ -17,7 +17,7 @@ KB Writer 插件的 skill 运行时依赖两类 MCP server：
 
 ```bash
 export KB_WRITER_API_BASE_URL="https://kb-companion.int.rclabenv.com"   # 可选；不设置时默认就是这个生产地址
-export KB_WRITER_BEARER_TOKEN="<POST /v1/auth/login 拿到的 JWT>"
+export KB_WRITER_ACCESS_TOKEN="<KB Writer 页面 Claude Plugin Setup 生成的 PAT（kbw_pat_...，长期有效）>"
 ```
 
 未设置时 skill 会在用到时提示配置，不会猜默认值。
