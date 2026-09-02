@@ -1,0 +1,14 @@
+{
+  "name": "kb-writer",
+  "description": "Smart KB Writer plugin for ticket and intent workspace operations.",
+  "owner": {
+    "name": "Smart KB team"
+  },
+  "plugins": [
+    {
+      "name": "kb-writer",
+      "source": "./",
+      "description": "Work on KB tickets and intent workspaces from Claude. Check status, update plans, review drafts, and publish articles."
+    }
+  ]
+}
