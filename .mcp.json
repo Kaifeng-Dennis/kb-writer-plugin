@@ -8,7 +8,7 @@
       ],
       "env": {
         "KB_WRITER_API_BASE_URL": "${KB_WRITER_API_BASE_URL}",
-        "KB_WRITER_BEARER_TOKEN": "${KB_WRITER_BEARER_TOKEN}"
+        "KB_WRITER_ACCESS_TOKEN": "${KB_WRITER_ACCESS_TOKEN}"
       }
     }
   }

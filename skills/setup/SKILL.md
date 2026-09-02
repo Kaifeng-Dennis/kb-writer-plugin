@@ -1,6 +1,6 @@
 ---
 name: setup
-description: First-time setup for the KB Writer plugin. Use when the PM installs the plugin, hits a missing KB_WRITER_BEARER_TOKEN error, or asks to configure/sign in to KB Writer.
+description: First-time setup for the KB Writer plugin. Use when the PM installs the plugin, hits a missing KB_WRITER_ACCESS_TOKEN error, or asks to configure/sign in to KB Writer.
 ---
 
 # KB Writer setup
@@ -26,7 +26,7 @@ Do not run any shell command for tracking. If the MCP tool is unavailable or err
 Check, reporting one line each:
 
 1. `KB_WRITER_API_BASE_URL` — set, or unset (will default to the production backend `https://kb-companion.int.rclabenv.com`).
-2. `KB_WRITER_BEARER_TOKEN` — set, or unset.
+2. `KB_WRITER_ACCESS_TOKEN` — set, or unset.
 3. Whether the base URL is reachable: `curl -s -o /dev/null -w "%{http_code}" --max-time 3 "$KB_WRITER_API_BASE_URL/v1/auth/login" -X POST` (any HTTP response means reachable; connection refused means the backend is down).
 4. Whether `mcp-atlassian-service` tools (e.g. `pm_toolkit_track`) appear in the MCP tool catalog.
 
@@ -35,29 +35,28 @@ Check, reporting one line each:
 - If unset, tell the PM the default `https://kb-companion.int.rclabenv.com` (production) will be used. Only ask for a URL when they are targeting a local or non-default environment.
 - If the URL is unreachable and it is a localhost URL, offer to start the local backend (`./scripts/dev.sh` in the smart-kb repo) or let the PM start it themselves. If the production URL is unreachable, tell the PM to check VPN/network access to `int.rclabenv.com`. Do not block: they may configure later.
 
-## Step 3 — Sign in and persist the token
+## Step 3 — Get a personal access token from the KB Writer page
 
-Only when `KB_WRITER_BEARER_TOKEN` is unset:
+Only when `KB_WRITER_ACCESS_TOKEN` is unset:
 
-1. Ask the PM for their KB Writer username and password (LDAP or local test account).
-2. Exchange them for a JWT:
+1. Direct the PM to the KB Writer web app (production: `https://kb-companion.int.rclabenv.com`, or their local `$KB_WRITER_API_BASE_URL`), sign in, then open the avatar menu (top right) → **Claude Plugin Setup** → step 3 → **Generate token & copy config**. This issues a personal access token (`kbw_pat_...`, valid 1 year, revocable) and copies both shell exports to the clipboard in one click.
+2. Ask the PM to paste the copied lines into their shell profile (`~/.zshrc` or `~/.bashrc`, ask which), or offer to append the pasted lines for them.
+3. If the PM cannot use the page (e.g. headless environment), fall back to creating a PAT via the API with their username and password:
 
 ```bash
-curl -sS -X POST "$KB_WRITER_API_BASE_URL/v1/auth/login" \
+JWT=$(curl -sS -X POST "$KB_WRITER_API_BASE_URL/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"user_name": "<username>", "password": "<password>"}'
+  -d '{"user_name": "<username>", "password": "<password>"}' | python3 -c "import sys, json; print(json.load(sys.stdin)['token'])")
+curl -sS -X POST "$KB_WRITER_API_BASE_URL/v1/auth/tokens" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $JWT" \
+  -d '{"name": "kb-writer-plugin"}'
 ```
 
-3. On success, offer to persist the token. Preferred: append to the PM's shell profile (`~/.zshrc` or `~/.bashrc`, ask which):
-
-```bash
-export KB_WRITER_BEARER_TOKEN="<token>"
-# Optional, only when targeting a non-local backend:
-# export KB_WRITER_API_BASE_URL="<url>"
-```
+Then persist the returned `token` value as `KB_WRITER_ACCESS_TOKEN`.
 
 4. Never commit the token into any repository file. Never echo the full token back in chat; show at most the first 12 characters.
-5. Remind the PM that exported variables only reach **new** Codex threads/terminals; suggest opening a new thread after setup.
+5. Remind the PM that exported variables only reach **new** agent threads/terminals; suggest opening a new thread after setup.
 
 ## Step 4 — Optional: Atlassian MCP (tracking + Jira/Confluence context)
 

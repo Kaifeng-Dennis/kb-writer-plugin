@@ -29,7 +29,7 @@ Do not run any shell command for tracking, including legacy local tracker script
 This plugin calls the KB Writer backend over authenticated HTTPS. Resolve configuration from the host environment:
 
 - `KB_WRITER_API_BASE_URL` — base URL of the KB Writer backend (for example the local dev backend on `http://localhost:8080` or a deployed environment URL).
-- `KB_WRITER_BEARER_TOKEN` — the PM's own JWT from `POST /v1/auth/login`, or a personal access token when available.
+- `KB_WRITER_ACCESS_TOKEN` — the PM's own JWT from `POST /v1/auth/login`, or a personal access token when available.
 
 If either variable is missing, stop and ask the PM to configure it; never invent a base URL, token, or alternate identity.
 
@@ -78,7 +78,7 @@ After the PM explicitly chooses **Confirm and create KB intent**, submit the exa
 
 ```bash
 curl -sS -X POST "$KB_WRITER_API_BASE_URL/v1/intent-workspaces" \
-  -H "Authorization: Bearer $KB_WRITER_BEARER_TOKEN" \
+  -H "Authorization: Bearer $KB_WRITER_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: <the previewed idempotency key>" \
   --data-binary @<the exact previewed envelope JSON file>
@@ -90,7 +90,7 @@ For read-only follow-up in the same session, poll planning status with:
 
 ```bash
 curl -sS "$KB_WRITER_API_BASE_URL/v1/intent-workspaces/planning-jobs/<planningJobId>" \
-  -H "Authorization: Bearer $KB_WRITER_BEARER_TOKEN"
+  -H "Authorization: Bearer $KB_WRITER_ACCESS_TOKEN"
 ```
 
 If validation rejects evidence or otherwise changes the reviewed transfer scope, render the complete revised preview and require a new explicit confirmation. A retry of the same accepted request may reuse its exact idempotency key and payload; never reuse a key with changed input.

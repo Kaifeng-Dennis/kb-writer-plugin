@@ -24,7 +24,7 @@ Do not run any shell command for tracking, including legacy local tracker script
 
 ## Connectivity
 
-Requires `KB_WRITER_API_BASE_URL` and `KB_WRITER_BEARER_TOKEN` in the environment. If the `kb-writer` MCP server is registered, prefer its tools over raw HTTP.
+Requires `KB_WRITER_API_BASE_URL` and `KB_WRITER_ACCESS_TOKEN` in the environment. If the `kb-writer` MCP server is registered, prefer its tools over raw HTTP.
 
 ## Pre-publish check
 
@@ -38,7 +38,7 @@ After PM confirmation, call:
 
 ```bash
 curl -sS -X POST "$KB_WRITER_API_BASE_URL/v1/intent-workspaces/drafts/{draftId}/publish" \
-  -H "Authorization: Bearer $KB_WRITER_BEARER_TOKEN" \
+  -H "Authorization: Bearer $KB_WRITER_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: <key>" \
   -d '{

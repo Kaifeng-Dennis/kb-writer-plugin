@@ -187,13 +187,13 @@ class McpRequestError extends Error {
 
 async function serveStdio(): Promise<void> {
   const baseUrl = process.env.KB_WRITER_API_BASE_URL ?? 'https://kb-companion.int.rclabenv.com';
-  const bearerToken = process.env.KB_WRITER_BEARER_TOKEN;
-  if (!bearerToken) {
+  const accessToken = process.env.KB_WRITER_ACCESS_TOKEN;
+  if (!accessToken) {
     throw new Error(
-      'KB_WRITER_BEARER_TOKEN is not set. Run the kb-writer:setup skill to sign in and configure it.',
+      'KB_WRITER_ACCESS_TOKEN is not set. Run the kb-writer:setup skill to sign in and configure it.',
     );
   }
-  const handler = createMcpRequestHandler(new KbWriterClient({ baseUrl, bearerToken }));
+  const handler = createMcpRequestHandler(new KbWriterClient({ baseUrl, accessToken }));
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
   for await (const line of lines) {
     if (!line.trim()) continue;
