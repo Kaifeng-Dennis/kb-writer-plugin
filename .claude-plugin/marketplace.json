@@ -7,7 +7,10 @@
   "plugins": [
     {
       "name": "kb-writer",
-      "source": "./",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/Kaifeng-Dennis/kb-writer-plugin.git"
+      },
       "description": "Work on KB tickets and intent workspaces from Claude. Check status, update plans, review drafts, and publish articles."
     }
   ]
