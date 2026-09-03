@@ -48,8 +48,12 @@ curl -sS -X POST "$KB_WRITER_API_BASE_URL/v1/intent-workspaces/drafts/{draftId}/
   }'
 ```
 
-Report the returned `canonicalUrl`, `draftVersion`, and `workItemVersion`.
-
 ## After publish
 
-Suggest the PM use `check-kb-status` to verify the work item transitioned to `published`, then consider `complete_workspace` or `archive_workspace`.
+1. Report the returned `canonicalUrl`, `draftVersion`, and `workItemVersion`.
+2. Read `GET /v1/intent-workspaces/{workspaceId}` and `GET /v1/intent-workspaces/{workspaceId}/tasks` (or use `get_workspace` and `get_article_tasks` from the `kb-writer` MCP server).
+3. Only when `originType` is `JIRA`, `jiraKey` is present, the task list is non-empty, and every task has status `published`, ask: “All articles for `<jiraKey>` are published. Do you want to close this KB ticket in Jira?”
+4. On an explicit yes, invoke the host-configured local Jira skill that closes the exact `<jiraKey>`. Do not call Jira through raw HTTP, use a different connector, or close a parent INIT ticket.
+5. If the PM declines, no Jira-closing skill is available, or that skill fails, report that outcome and keep the successful publication unchanged. Do not retry the Jira transition or roll back the Draft or Work Item.
+
+When the close condition is not met, suggest `check-kb-status`, then consider `complete_workspace` or `archive_workspace` instead. Never offer to close a ticketless Workspace or a Jira Workspace with any task not yet published.
