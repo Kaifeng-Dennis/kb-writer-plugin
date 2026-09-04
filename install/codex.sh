@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-shot installer for the KB Writer plugin in Codex.
+# One-shot installer and refresher for the KB Writer Codex plugin.
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/Kaifeng-Dennis/kb-writer-plugin/main/install/codex.sh | bash
@@ -8,36 +8,44 @@ set -euo pipefail
 
 MARKETPLACE_NAME="kb-writer"
 PLUGIN_NAME="kb-writer"
-REPO_GIT="https://github.com/Kaifeng-Dennis/kb-writer-plugin.git"
+PLUGIN_ID="${PLUGIN_NAME}@${MARKETPLACE_NAME}"
+MARKETPLACE_SOURCE="https://github.com/Kaifeng-Dennis/kb-writer-plugin.git"
 API_BASE_URL="${KB_WRITER_API_BASE_URL:-https://kb-companion.int.rclabenv.com}"
 ACCESS_TOKEN="${KB_WRITER_ACCESS_TOKEN:-}"
 
 CODEX_DIR="${HOME}/.codex"
 CONFIG_FILE="${CODEX_DIR}/config.toml"
-INSTALL_ROOT="${CODEX_DIR}/plugins/cache/${MARKETPLACE_NAME}/${PLUGIN_NAME}"
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*"; }
 
-command -v git >/dev/null 2>&1 || { echo "git is required"; exit 1; }
+command -v codex >/dev/null 2>&1 || { echo "Codex CLI is required"; exit 1; }
 command -v python3 >/dev/null 2>&1 || { echo "python3 is required"; exit 1; }
 
-info "Fetching kb-writer plugin from GitHub"
-TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "${TMP_DIR}"' EXIT
-git clone --depth 1 "${REPO_GIT}" "${TMP_DIR}/repo" -q
-PLUGIN_VERSION="$(python3 -c "import json; print(json.load(open('${TMP_DIR}/repo/.codex-plugin/plugin.json'))['version'])")"
-INSTALL_DIR="${INSTALL_ROOT}/${PLUGIN_VERSION}"
-rm -rf "${INSTALL_DIR}"
-mkdir -p "${INSTALL_ROOT}"
-mv "${TMP_DIR}/repo" "${INSTALL_DIR}"
-rm -rf "${INSTALL_DIR}/.git"
-info "Plugin ${PLUGIN_NAME} v${PLUGIN_VERSION} installed to ${INSTALL_DIR}"
+marketplace_exists() {
+  codex plugin marketplace list --json | python3 -c '
+import json, sys
+marketplace = sys.argv[1]
+catalog = json.load(sys.stdin)
+sys.exit(0 if any(item.get("name") == marketplace for item in catalog.get("marketplaces", [])) else 1)
+' "$MARKETPLACE_NAME"
+}
 
-if [ -n "${ACCESS_TOKEN}" ]; then
+if marketplace_exists >/dev/null; then
+  info "Refreshing KB Writer marketplace"
+  codex plugin marketplace upgrade "$MARKETPLACE_NAME"
+else
+  info "Adding KB Writer marketplace"
+  codex plugin marketplace add "$MARKETPLACE_SOURCE" --ref main
+fi
+
+info "Installing ${PLUGIN_ID} from the refreshed marketplace"
+codex plugin add "$PLUGIN_ID"
+
+if [ -n "$ACCESS_TOKEN" ]; then
   info "Writing env into ${CONFIG_FILE}"
-  mkdir -p "${CODEX_DIR}"
-  [ -f "${CONFIG_FILE}" ] || touch "${CONFIG_FILE}"
+  mkdir -p "$CODEX_DIR"
+  [ -f "$CONFIG_FILE" ] || touch "$CONFIG_FILE"
   export CONFIG_FILE API_BASE_URL ACCESS_TOKEN
   python3 << 'PYEOF'
 import os, re
@@ -73,4 +81,5 @@ else
   warn "  2) add it to ${CONFIG_FILE} under [env]"
 fi
 
-info "Done. Open a new Codex thread to use the kb-writer skills."
+info "Done. Open a new Codex thread to use the KB Writer skills."
+info "Workspace-wide daily updates require an admin to import this repository's Codex marketplace."
