@@ -1,0 +1,12 @@
+{
+  "name": "@smart-kb/kb-writer-plugin-mcp",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.2",
+    "typescript": "5.9.3"
+  }
+}

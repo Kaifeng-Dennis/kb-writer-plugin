@@ -13,7 +13,7 @@ KB Writer 插件的 skill 运行时依赖两类 MCP server：
 
 ## 1. kb-writer MCP server
 
-插件已通过 `.mcp.json` 自动注册（server 源码随插件打包在 `mcp-server/` 内，无需仓库内其他目录），无需手动配置。它读取两个环境变量：
+插件已通过 `.mcp.json` 自动注册（server 的预构建 JavaScript 随插件打包在 `mcp-server/dist/` 内，无需仓库内其他目录或 TypeScript 运行时），无需手动配置。它读取两个环境变量：
 
 ```bash
 export KB_WRITER_API_BASE_URL="https://kb-companion.int.rclabenv.com"   # 可选；不设置时默认就是这个生产地址
