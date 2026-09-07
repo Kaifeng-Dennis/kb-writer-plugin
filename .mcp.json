@@ -1,13 +1,10 @@
 {
   "mcpServers": {
     "kb-writer": {
-      "command": "node",
-      "args": [
-        "${CLAUDE_PLUGIN_ROOT}/mcp-server/dist/index.js"
-      ],
-      "env": {
-        "KB_WRITER_API_BASE_URL": "${KB_WRITER_API_BASE_URL}",
-        "KB_WRITER_ACCESS_TOKEN": "${KB_WRITER_ACCESS_TOKEN}"
+      "type": "http",
+      "url": "${KB_WRITER_API_BASE_URL:-https://kb-companion.int.rclabenv.com}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${KB_WRITER_ACCESS_TOKEN}"
       }
     }
   }
