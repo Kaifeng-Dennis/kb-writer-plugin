@@ -13,7 +13,7 @@ KB Writer 插件的 skill 运行时依赖两类 MCP server：
 
 ## 1. kb-writer MCP server
 
-用 PAT 运行 installer 时，会自动在 Codex 或 Claude 的用户配置中注册名为 `kb-writer` 的 remote MCP。installer 同时保留两个环境变量，供未支持 MCP 的 skill HTTP fallback 使用：
+用 PAT 运行 installer 时，会自动在 Codex 或 Claude 的用户配置中注册名为 `kb-writer` 的 remote MCP。Claude installer 使用 `claude mcp add --transport http`，由 Claude CLI 写入正确的用户配置和 transport 类型，而不是手写 JSON。installer 同时保留两个环境变量，供未支持 MCP 的 skill HTTP fallback 使用：
 
 ```bash
 export KB_WRITER_API_BASE_URL="https://kb-companion.int.rclabenv.com"   # 可选；不设置时默认就是这个生产地址
@@ -27,9 +27,24 @@ KB_WRITER_ACCESS_TOKEN="kbw_pat_..." \
   curl -fsSL https://raw.githubusercontent.com/Kaifeng-Dennis/kb-writer-plugin/main/install/codex.sh | bash
 ```
 
-`KB_WRITER_API_BASE_URL` 未设置时默认生产地址；若设置为本地或 stage 地址，installer 会把其尾部 `/` 去除后注册 `${KB_WRITER_API_BASE_URL}/mcp`。安装后打开新线程（Codex）或重启/重新加载 Claude，客户端会发现 remote MCP 工具。
+`KB_WRITER_API_BASE_URL` 未设置时默认生产地址；若设置为本地或 stage 地址，installer 会把其尾部 `/` 去除后注册 `${KB_WRITER_API_BASE_URL}/mcp`。安装后打开新线程（Codex）或重启 Claude 后打开新线程，客户端会发现 remote MCP 工具。
 
 未提供 PAT 时 installer 只安装插件，不会写入半配置 MCP；获取 PAT 后使用同一命令重新运行即可。
+
+### Claude desktop app 的手动 marketplace 安装
+
+通过 Claude desktop app 添加 marketplace 并安装插件后，插件根目录的 `.mcp.json` 会自动提供 `kb-writer` remote MCP，**不要**再把 `mcpServers` JSON 粘贴到 `~/.claude/settings.json`。只需把环境变量合并到该文件的 `env` 对象：
+
+```json
+{
+  "env": {
+    "KB_WRITER_API_BASE_URL": "https://kb-companion.int.rclabenv.com",
+    "KB_WRITER_ACCESS_TOKEN": "kbw_pat_..."
+  }
+}
+```
+
+重启 Claude desktop app 并打开新线程。macOS GUI 应用不会继承 `~/.zshrc` 的 `export`；Claude Code CLI 用户则可把同样的两个变量写进 shell profile。
 
 ### Remote MCP（Streamable HTTP）
 

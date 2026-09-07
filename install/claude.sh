@@ -75,19 +75,23 @@ settings.setdefault('extraKnownMarketplaces', {})[marketplace] = {
     'autoUpdate': True,
 }
 settings.setdefault('enabledPlugins', {})[os.environ['PLUGIN_ID']] = True
+legacy_mcp_servers = settings.get('mcpServers')
+if legacy_mcp_servers:
+    legacy_mcp_servers.pop('kb-writer', None)
 if os.environ.get('ACCESS_TOKEN'):
     env = settings.setdefault('env', {})
     env['KB_WRITER_API_BASE_URL'] = os.environ['API_BASE_URL']
     env['KB_WRITER_ACCESS_TOKEN'] = os.environ['ACCESS_TOKEN']
-    settings.setdefault('mcpServers', {})['kb-writer'] = {
-        'url': os.environ['API_BASE_URL'].rstrip('/') + '/mcp',
-        'headers': {'Authorization': f'Bearer {os.environ["ACCESS_TOKEN"]}'},
-    }
 json.dump(settings, open(settings_path, 'w'), indent=2)
 PYEOF
 
 if [ -n "$ACCESS_TOKEN" ]; then
-  info "Wrote KB Writer remote MCP and API settings into ~/.claude/settings.json"
+  claude mcp remove kb-writer --scope user 2>/dev/null || true
+  claude mcp add kb-writer "${API_BASE_URL%/}/mcp" \
+    --scope user \
+    --transport http \
+    --header "Authorization: Bearer ${ACCESS_TOKEN}"
+  info "Wrote KB Writer environment settings and registered its remote MCP"
 else
   warn "No KB_WRITER_ACCESS_TOKEN provided."
   warn "Get one from KB Writer (avatar menu → Claude Plugin Setup → Generate token), then either:"
@@ -95,4 +99,4 @@ else
   warn "  2) export it in your shell profile (~/.zshrc)"
 fi
 
-info "Done. Remote MCP is configured as kb-writer; run /reload-plugins after an update."
+info "Done. Restart Claude, then open a new thread to load KB Writer."
