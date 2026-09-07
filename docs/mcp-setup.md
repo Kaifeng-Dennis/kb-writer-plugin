@@ -6,21 +6,50 @@ KB Writer 插件的 skill 运行时依赖两类 MCP server：
 
 | MCP server | 用途 | 必需性 |
 |---|---|---|
-| `kb-writer`（随插件附带） | 结构化调用 KB Writer 后端（skill 内优先于 raw HTTP） | 可选，未注册时 skill 自动降级为 HTTP |
+| `kb-writer`（remote MCP） | 结构化调用 KB Writer 后端（skill 内优先于 raw HTTP） | 推荐；installer 会自动注册 |
 | `mcp-atlassian-service` | Jira/Confluence 上下文 + 使用量 tracking（`pm_toolkit_track`） | 可选，缺失时 tracking 静默跳过、Jira/Confluence 上下文需手动粘贴 |
 
 两者的缺失都不会阻塞 skill 主流程，但配置后体验完整。
 
 ## 1. kb-writer MCP server
 
-插件已通过 `.mcp.json` 自动注册（server 的预构建 JavaScript 随插件打包在 `mcp-server/dist/` 内，无需仓库内其他目录或 TypeScript 运行时），无需手动配置。它读取两个环境变量：
+用 PAT 运行 installer 时，会自动在 Codex 或 Claude 的用户配置中注册名为 `kb-writer` 的 remote MCP。installer 同时保留两个环境变量，供未支持 MCP 的 skill HTTP fallback 使用：
 
 ```bash
 export KB_WRITER_API_BASE_URL="https://kb-companion.int.rclabenv.com"   # 可选；不设置时默认就是这个生产地址
 export KB_WRITER_ACCESS_TOKEN="<KB Writer 页面 Claude Plugin Setup 生成的 PAT（kbw_pat_...，长期有效）>"
 ```
 
-未设置时 skill 会在用到时提示配置，不会猜默认值。
+例如：
+
+```bash
+KB_WRITER_ACCESS_TOKEN="kbw_pat_..." \
+  curl -fsSL https://raw.githubusercontent.com/Kaifeng-Dennis/kb-writer-plugin/main/install/codex.sh | bash
+```
+
+`KB_WRITER_API_BASE_URL` 未设置时默认生产地址；若设置为本地或 stage 地址，installer 会把其尾部 `/` 去除后注册 `${KB_WRITER_API_BASE_URL}/mcp`。安装后打开新线程（Codex）或重启/重新加载 Claude，客户端会发现 remote MCP 工具。
+
+未提供 PAT 时 installer 只安装插件，不会写入半配置 MCP；获取 PAT 后使用同一命令重新运行即可。
+
+### Remote MCP（Streamable HTTP）
+
+remote MCP 是默认连接路径；支持 Streamable HTTP 的客户端也可手工添加同一配置：
+
+```text
+https://kb-companion.int.rclabenv.com/mcp
+```
+
+请求使用与本地 adapter 相同的个人访问令牌：
+
+```text
+Authorization: Bearer kbw_pat_...
+```
+
+该 endpoint 使用 MCP Streamable HTTP。客户端必须在每个 `POST` 的 `Accept` header 中同时声明 `application/json` 和 `text/event-stream`；当前服务返回单个 JSON-RPC JSON 响应，不建立 MCP session 或 SSE stream。
+
+### Local stdio compatibility fallback
+
+仅当客户端不支持 HTTP MCP 或无法直连后端时，才手工使用插件内的 local stdio adapter。不要同时注册 local 与 remote `kb-writer`，否则同一批 35 个工具会重复出现。
 
 ## 2. Atlassian MCP server（tracking + Jira/Confluence 上下文）
 
@@ -63,4 +92,4 @@ Settings → MCP servers，添加同样的 URL 与 headers（参考 pm-toolkit R
 |---|---|---|
 | 新线程里没有 `pm_toolkit_track` 工具 | MCP 未配置或未刷新 | 检查 config.toml，重开线程 |
 | tracking 有数据但 username=unknown | `jira-read-token` 失效或 `/myself` 不可达 | 重新申请 token |
-| skill 提示缺 `KB_WRITER_*` 环境变量 | kb-writer MCP 的环境未设置 | 按第 1 节设置后重开线程 |
+| 未发现 `kb-writer` MCP 工具 | 安装后客户端未刷新，或安装时没有 PAT | 用 PAT 重新运行 installer，并打开新线程/重启客户端 |
