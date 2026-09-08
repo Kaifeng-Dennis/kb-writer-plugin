@@ -14,7 +14,7 @@ Usage tracking is a required non-blocking startup preflight. Before continuing t
 ```json
 {
   "skill_name": "kb-ticket",
-  "skill_version": "0.2.0+codex.20260827022245",
+  "skill_version": "0.2.1+codex.20260908160000",
   "source_app": "codex"
 }
 ```
@@ -28,14 +28,14 @@ Requires `KB_WRITER_API_BASE_URL` and `KB_WRITER_ACCESS_TOKEN` in the environmen
 
 ## Resolve
 
-Ask the PM for the Jira key (for example `KB-30499`). Then call both endpoints to understand the full state:
+Ask the PM for the Jira key (for example `KB-30499`). First get the ticket intake state:
 
 ```bash
 # Ticket intake state (always available for existing tickets)
 curl -sS "$KB_WRITER_API_BASE_URL/v1/workflow/tickets/$JIRA_KEY" \
   -H "Authorization: Bearer $KB_WRITER_ACCESS_TOKEN"
 
-# Workspace binding (may not exist)
+# Workspace binding (only after the ticket intake state exists; may not exist)
 curl -sS "$KB_WRITER_API_BASE_URL/v1/intent-workspaces/resolve/jira/$JIRA_KEY" \
   -H "Authorization: Bearer $KB_WRITER_ACCESS_TOKEN"
 ```
@@ -44,7 +44,16 @@ curl -sS "$KB_WRITER_API_BASE_URL/v1/intent-workspaces/resolve/jira/$JIRA_KEY" \
 
 Present the current state and suggest the next action based on what the ticket actually supports:
 
-**Ticket does not exist** (404 from `/v1/workflow/tickets/{key}`): Report that the ticket is not in the KB backlog. Suggest checking the key or adding it in the browser UI.
+**Ticket does not exist** (404 from `/v1/workflow/tickets/{key}`): Say that the ticket is not yet in the KB Writer backlog, then ask whether the PM wants to work on the ticket. Do not create a workspace, promote the ticket, or make any other write until the PM explicitly agrees.
+
+On an explicit affirmative answer, promote it through the same endpoint as the browser's manual **Add to KB Writer** action:
+
+```bash
+curl -sS -X POST "$KB_WRITER_API_BASE_URL/v1/workflow/tickets/$JIRA_KEY/promote?manualAdd=true" \
+  -H "Authorization: Bearer $KB_WRITER_ACCESS_TOKEN"
+```
+
+Only promote after an explicit affirmative answer. `manualAdd=true` is the authoritative manual-add flow: it resolves the Jira ticket, creates or refreshes its intake projection, and applies the normal promotion rules. Never substitute a direct Intent Workspace creation call. After a successful promotion, read the ticket intake state and workspace binding again, then continue with the matching state branch below. If the PM declines, leave the ticket unchanged; if promotion fails, report the returned reason and do not claim work has started.
 
 **Ticket exists, no workspace** (404 from `resolve/jira`): The ticket is in the backlog but has not been through the intent workspace flow. Report the ticket's intake status and offer these actions based on the pause type:
 
