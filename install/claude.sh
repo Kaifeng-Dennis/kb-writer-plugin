@@ -14,6 +14,7 @@ API_BASE_URL="${KB_WRITER_API_BASE_URL:-https://kb-companion.int.rclabenv.com}"
 ACCESS_TOKEN="${KB_WRITER_ACCESS_TOKEN:-}"
 SKIP_PLUGIN_INSTALL="${KB_WRITER_INSTALL_SKIP_PLUGIN:-}"
 SETTINGS_FILE="${HOME}/.claude/settings.json"
+PLUGIN_CACHE_ROOT="${HOME}/.claude/plugins/cache/${MARKETPLACE_NAME}/${PLUGIN_NAME}"
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*"; }
@@ -63,9 +64,10 @@ mkdir -p "$(dirname "$SETTINGS_FILE")"
 [ -f "$SETTINGS_FILE" ] || echo '{}' > "$SETTINGS_FILE"
 
 info "Enabling KB Writer marketplace auto-update"
-export SETTINGS_FILE MARKETPLACE_NAME PLUGIN_ID REPO_GITHUB API_BASE_URL ACCESS_TOKEN
+export SETTINGS_FILE PLUGIN_CACHE_ROOT MARKETPLACE_NAME PLUGIN_ID REPO_GITHUB API_BASE_URL ACCESS_TOKEN
 python3 << 'PYEOF'
-import json, os
+import json, os, tempfile
+from pathlib import Path
 
 settings_path = os.environ['SETTINGS_FILE']
 settings = json.load(open(settings_path))
@@ -83,6 +85,22 @@ if os.environ.get('ACCESS_TOKEN'):
     env['KB_WRITER_API_BASE_URL'] = os.environ['API_BASE_URL']
     env['KB_WRITER_ACCESS_TOKEN'] = os.environ['ACCESS_TOKEN']
 json.dump(settings, open(settings_path, 'w'), indent=2)
+
+if os.environ.get('ACCESS_TOKEN'):
+    for manifest_path in Path(os.environ['PLUGIN_CACHE_ROOT']).glob('*/.mcp.json'):
+        manifest = json.load(open(manifest_path))
+        server = manifest.get('mcpServers', {}).get('kb-writer')
+        if not server:
+            continue
+        server['type'] = 'http'
+        server['url'] = os.environ['API_BASE_URL'].rstrip('/') + '/mcp'
+        server['headers'] = {'Authorization': f"Bearer {os.environ['ACCESS_TOKEN']}"}
+        with tempfile.NamedTemporaryFile('w', dir=manifest_path.parent, delete=False) as output:
+            json.dump(manifest, output, indent=2)
+            output.flush()
+            os.fsync(output.fileno())
+        os.chmod(output.name, 0o600)
+        os.replace(output.name, manifest_path)
 PYEOF
 
 if [ -n "$ACCESS_TOKEN" ]; then
