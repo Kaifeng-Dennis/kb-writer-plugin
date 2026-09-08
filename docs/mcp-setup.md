@@ -33,14 +33,18 @@ KB_WRITER_ACCESS_TOKEN="kbw_pat_..." \
 
 ### Claude desktop app 的手动 marketplace 安装
 
-通过 Claude desktop app 添加 marketplace 并安装插件后，在 **Terminal** 运行 Claude installer。它会在插件更新后把你的 remote MCP URL 和 PAT 写进当前已安装插件的 `.mcp.json`，供 Cowork 的新 sandbox 读取：
+通过 Claude desktop app 添加 marketplace 并安装插件后，插件根目录的 `.mcp.json` 会自动提供 `kb-writer` remote MCP，**不要**再把 `mcpServers` JSON 粘贴到 `~/.claude/settings.json`。只需把环境变量合并到该文件的 `env` 对象：
 
-```bash
-KB_WRITER_ACCESS_TOKEN="kbw_pat_..." \
-curl -fsSL https://raw.githubusercontent.com/Kaifeng-Dennis/kb-writer-plugin/main/install/claude.sh | bash
+```json
+{
+  "env": {
+    "KB_WRITER_API_BASE_URL": "https://kb-companion.int.rclabenv.com",
+    "KB_WRITER_ACCESS_TOKEN": "kbw_pat_..."
+  }
+}
 ```
 
-不要把 PAT 粘贴到 `~/.claude/settings.json` 或 shell profile 来配置 Cowork。完成后重启 Claude desktop app 并打开新线程。**这是临时过渡方案**：从 Claude UI 更新插件会重建该文件，届时重新运行同一条 installer 命令；后续 OAuth 版本会移除这一步。
+重启 Claude desktop app 并打开新线程。macOS GUI 应用不会继承 `~/.zshrc` 的 `export`；Claude Code CLI 用户则可把同样的两个变量写进 shell profile。
 
 ### Remote MCP（Streamable HTTP）
 

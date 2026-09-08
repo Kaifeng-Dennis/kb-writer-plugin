@@ -37,16 +37,10 @@ Check, reporting one line each:
 
 ## Step 3 — Get a personal access token from the KB Writer page
 
-When the PM is using Claude Cowork:
+Only when `KB_WRITER_ACCESS_TOKEN` is unset:
 
-1. Direct the PM to the KB Writer web app (production: `https://kb-companion.int.rclabenv.com`, or their local `$KB_WRITER_API_BASE_URL`), sign in, then open the avatar menu (top right) → **Claude Plugin Setup** → **Generate token & copy install command**.
-2. Have the PM run the copied command in Terminal after installing the plugin. It writes the remote MCP URL and PAT to the installed plugin's `.mcp.json`, which Cowork reads when starting a sandbox. Do not ask them to add the PAT to `~/.claude/settings.json` or a shell profile.
-3. Tell the PM to restart Claude and open a new thread. If they update the plugin from Claude UI, they must re-run the installer because that update replaces the patched manifest. This is temporary until OAuth-based MCP authentication replaces PAT injection.
-
-Only when `KB_WRITER_ACCESS_TOKEN` is unset for a non-Cowork client:
-
-1. Direct the PM to the KB Writer web app (production: `https://kb-companion.int.rclabenv.com`, or their local `$KB_WRITER_API_BASE_URL`), sign in, then open the avatar menu (top right) → **Claude Plugin Setup** → **Generate token & copy install command**.
-2. Have the PM run the copied command in Terminal. The installer registers the remote MCP and persists the required client configuration.
+1. Direct the PM to the KB Writer web app (production: `https://kb-companion.int.rclabenv.com`, or their local `$KB_WRITER_API_BASE_URL`), sign in, then open the avatar menu (top right) → **Claude Plugin Setup** → step 3 → **Generate token & copy config**. This issues a personal access token (`kbw_pat_...`, valid 1 year, revocable) and copies both shell exports to the clipboard in one click.
+2. Ask the PM to paste the copied lines into their shell profile (`~/.zshrc` or `~/.bashrc`, ask which), or offer to append the pasted lines for them.
 3. If the PM cannot use the page (e.g. headless environment), fall back to creating a PAT via the API with their username and password:
 
 ```bash
@@ -59,10 +53,10 @@ curl -sS -X POST "$KB_WRITER_API_BASE_URL/v1/auth/tokens" \
   -d '{"name": "kb-writer-plugin"}'
 ```
 
-Then run the appropriate installer with the returned `token` value as `KB_WRITER_ACCESS_TOKEN`.
+Then persist the returned `token` value as `KB_WRITER_ACCESS_TOKEN`.
 
 4. Never commit the token into any repository file. Never echo the full token back in chat; show at most the first 12 characters.
-5. Remind the PM to open a new agent thread after setup.
+5. Remind the PM that exported variables only reach **new** agent threads/terminals; suggest opening a new thread after setup.
 
 ## Step 4 — Optional: Atlassian MCP (tracking + Jira/Confluence context)
 
@@ -81,5 +75,5 @@ http_headers = { "confluence-read-token" = "<token>", "jira-read-token" = "<toke
 
 ## Step 5 — Verify
 
-1. In Cowork, confirm the `kb-writer` MCP tools appear in a new thread. In other clients, call a lightweight authenticated endpoint (e.g. `GET /v1/auth/me` with the new token) and confirm a 200.
-2. Print the final summary: backend URL, authentication status, Atlassian MCP status, and "open a new thread to start using the skills".
+1. Call a lightweight authenticated endpoint (e.g. `GET /v1/auth/me` with the new token) and confirm a 200.
+2. Print the final summary: backend URL, token status (set/persisted where), Atlassian MCP status, and "open a new thread to start using the skills".

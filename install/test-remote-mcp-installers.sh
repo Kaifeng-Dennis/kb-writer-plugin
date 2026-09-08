@@ -9,11 +9,10 @@ assert_configured() {
   local codex_config="$1/.codex/config.toml"
   local claude_config="$1/.claude/settings.json"
   local claude_command_log="$1/claude-commands"
-  local claude_manifest="$1/.claude/plugins/cache/kb-writer/kb-writer/0.2.9/.mcp.json"
-  python3 - "$codex_config" "$claude_config" "$claude_command_log" "$claude_manifest" <<'PYEOF'
-import json, stat, sys
+  python3 - "$codex_config" "$claude_config" "$claude_command_log" <<'PYEOF'
+import json, sys
 codex, claude = (open(path).read() for path in sys.argv[1:3])
-claude_command_log, claude_manifest = sys.argv[3:]
+claude_command_log = sys.argv[3]
 assert '[mcp_servers.kb-writer]' in codex
 assert 'url = "https://example.test/base/mcp"' in codex
 assert 'Authorization = "Bearer kbw_pat_test"' in codex
@@ -33,12 +32,6 @@ expected_command = [
     '--header', 'Authorization: Bearer kbw_pat_test',
 ]
 assert commands == expected_command * 2
-
-manifest = json.load(open(claude_manifest))
-server = manifest['mcpServers']['kb-writer']
-assert server['url'] == 'https://example.test/base/mcp'
-assert server['headers']['Authorization'] == 'Bearer kbw_pat_test'
-assert stat.S_IMODE(__import__('os').stat(claude_manifest).st_mode) == 0o600
 PYEOF
 }
 
@@ -54,10 +47,6 @@ url = "https://other.example/mcp"
 EOF
 cat > "$TEMP_HOME/.claude/settings.json" <<'EOF'
 {"mcpServers":{"unrelated-server":{"url":"https://other.example/mcp"},"kb-writer":{"url":"https://old.example/mcp"}}}
-EOF
-mkdir -p "$TEMP_HOME/.claude/plugins/cache/kb-writer/kb-writer/0.2.9"
-cat > "$TEMP_HOME/.claude/plugins/cache/kb-writer/kb-writer/0.2.9/.mcp.json" <<'EOF'
-{"mcpServers":{"kb-writer":{"type":"http","url":"${KB_WRITER_API_BASE_URL:-https://kb-companion.int.rclabenv.com}/mcp","headers":{"Authorization":"Bearer ${KB_WRITER_ACCESS_TOKEN}"}}}}
 EOF
 
 for installer in \
