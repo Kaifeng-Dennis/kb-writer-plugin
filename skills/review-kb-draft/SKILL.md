@@ -24,35 +24,27 @@ Do not run any shell command for tracking, including legacy local tracker script
 
 ## Connectivity
 
-Requires `KB_WRITER_API_BASE_URL` and `KB_WRITER_ACCESS_TOKEN` in the environment. If the `kb-writer` MCP server is registered, prefer its tools over raw HTTP.
+Requires the configured `kb-writer` remote MCP server. MCP is required for state-changing operations: if it is unavailable, stop and ask the PM to reconnect KB Writer rather than using raw HTTP.
 
 ## Inspect
 
-1. Call `GET /v1/intent-workspaces/{workspaceId}/tasks` to list work items with their status, version, and draft ID.
-2. For items with a draft, call `GET /v1/intent-workspaces/drafts/{draftId}` to show the draft content, title, and version.
+1. Call `get_article_tasks` to list work items.
+2. For items with a draft, call `get_draft` to show the draft content and title.
 3. Present the draft to the PM. Do not summarize or truncate the content; show it in full or provide a clear way to expand it.
 
 ## Act
 
-Ask the PM which action to take, then call the matching endpoint. All calls use `Idempotency-Key` header and `expectedWorkItemVersion` in the body:
+Ask the PM which action to take, then call the matching MCP tool with its current version and idempotency values:
 
-- **Assign content owner**: `POST /v1/intent-workspaces/tasks/{workItemId}/assign-content-owner` with `{"expectedWorkItemVersion": <version>, "ownerIdentity": "<identity>"}`
-- **Submit for content review**: `POST /v1/intent-workspaces/tasks/{workItemId}/submit-content-review` with `{"expectedWorkItemVersion": <version>}`
-- **Approve for publish**: `POST /v1/intent-workspaces/tasks/{workItemId}/approve-content-for-publish` with `{"expectedWorkItemVersion": <version>}`
-- **Return to PM review**: `POST /v1/intent-workspaces/tasks/{workItemId}/return-to-pm-review` with `{"expectedWorkItemVersion": <version>, "reason": "<reason>"}`
+- **Assign content owner**: `assign_content_owner`
+- **Submit for content review**: `submit_draft_for_content_review`
+- **Approve for publish**: `approve_content_for_publish`
+- **Return to PM review**: `return_content_to_pm_review`
 
-After each action, report the new `version` from the response. The PM needs it for the next action.
+After each action, state the outcome in plain language and offer the next relevant action. Keep versions, request parameters, internal status names, IDs, and API paths internal unless the PM asks for technical detail.
 
 ## Edit draft
 
-If the PM wants to edit the draft content before review, call:
+If the PM wants to edit the draft content before review, call `update_draft` with the current version, new content, and idempotency key.
 
-```bash
-curl -sS -X PATCH "$KB_WRITER_API_BASE_URL/v1/intent-workspaces/drafts/{draftId}" \
-  -H "Authorization: Bearer $KB_WRITER_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: <key>" \
-  -d '{"expectedVersion": <draftVersion>, "content": {"markdown": "<new content>"}}'
-```
-
-The response returns the new draft `version`.
+Confirm the edit in plain language and offer the next review action. Keep the returned version internal unless the PM asks for it.

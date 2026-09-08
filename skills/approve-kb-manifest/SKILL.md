@@ -24,27 +24,19 @@ Do not run any shell command for tracking, including legacy local tracker script
 
 ## Connectivity
 
-Requires `KB_WRITER_API_BASE_URL` and `KB_WRITER_ACCESS_TOKEN` in the environment. If the `kb-writer` MCP server is registered, prefer its tools over raw HTTP.
+Requires the configured `kb-writer` remote MCP server. MCP is required for state-changing operations: if it is unavailable, stop and ask the PM to reconnect KB Writer rather than using raw HTTP.
 
 ## Review
 
-1. Call `GET /v1/intent-workspaces/{workspaceId}/manifest`.
-2. Present every item with its action, proposed title, readiness, blockers, and accepted risks. Mark blocked items clearly.
-3. Ask the PM which ready items to approve. Do not auto-select all ready items; wait for the PM's explicit list.
+1. Call `get_generation_manifest`.
+2. Present each proposed article with its title, intended change, whether it is ready, and any needed decision in plain language. Mark items needing attention clearly.
+3. Ask the PM which article titles to start. Do not auto-select all ready items; wait for the PM's explicit choice.
 
 ## Start drafts
 
-After the PM confirms the selection, call:
+After the PM confirms the selection, call `start_drafts` with the current Workspace, Manifest, selected item, and idempotency values.
 
-```bash
-curl -sS -X POST "$KB_WRITER_API_BASE_URL/v1/intent-workspaces/{workspaceId}/manifest/start-drafts" \
-  -H "Authorization: Bearer $KB_WRITER_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: <key>" \
-  -d '{"expectedManifestId": <currentManifestId>, "selectedItemKeys": ["<itemKey1>", ...]}'
-```
-
-Report the returned `previewJobId`, `started` items, `alreadyMaterialized` items, and any `blocked` items.
+Report only which articles started, which still need attention, and the next action. Do not expose job IDs, item keys, API paths, internal state names, versions, or request parameters unless the PM asks for technical detail.
 
 ## After approval
 

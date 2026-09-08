@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { APPROVED_CAPABILITY_NAMES, KbWriterBackendError, KbWriterClient, } from "./kb-writer-client.js";
 const ARGUMENTS = {
     list_my_workspaces: [[], ['status', 'limit', 'cursor']],
+    promote_ticket: [['jira_key'], []],
     resolve_workspace_by_jira_key: [['jira_key'], []],
     get_workspace: [['workspace_id'], []],
     get_planning_status: [['planning_job_id'], []],

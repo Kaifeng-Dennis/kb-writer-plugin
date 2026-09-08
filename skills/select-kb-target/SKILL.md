@@ -26,22 +26,17 @@ Do not run any shell command for tracking, including legacy local tracker script
 
 ## Connectivity
 
-Requires `KB_WRITER_API_BASE_URL` and `KB_WRITER_ACCESS_TOKEN` in the environment. If the `kb-writer` MCP server is registered, prefer its tools over raw HTTP.
+Requires the configured `kb-writer` remote MCP server. MCP is required for state-changing operations: if it is unavailable, stop and ask the PM to reconnect KB Writer rather than using raw HTTP.
 
 ## Inputs
 
-Ask the PM for:
-
-1. `workspaceId` — the Intent Workspace ID (from `create_kb_intent` or `check_kb_status`).
-2. `itemKey` — the Manifest item key of the UPDATE item to bind.
-
-Do not guess or infer either value. If the PM does not know them, use `check-kb-status` first.
+Use the active ticket or Workspace context to identify the UPDATE item. If the context is absent, ask the PM for the ticket or article they want to update, then resolve the underlying Workspace and item yourself. Never ask the PM for internal IDs or item keys.
 
 ## Resolve candidates
 
-1. Call `GET /v1/intent-workspaces/{workspaceId}/targets?manifestItemKey={itemKey}` to list server-resolved candidates.
+1. Call `discover_article_targets` to list server-resolved candidates.
 2. Present candidates as a numbered PM-readable shortlist, best match first. For each candidate show: title, canonical URL, why it matched (in plain language), and what the update would touch. Mark the single best candidate as the recommendation, but do not pre-select it.
-3. If no candidates are returned, say so plainly and ask the PM for a URL or external ID. Call `POST /v1/intent-workspaces/{workspaceId}/targets/resolve` with that reference and show the resolved target as the only candidate.
+3. If no candidates are returned, say so plainly and ask the PM for a URL or external ID. Call `resolve_article_target` with that reference and show the resolved target as the only candidate.
 
 ## Confirmation gate
 
@@ -49,18 +44,10 @@ Pause and wait for the PM's explicit choice before any binding call. Accept: a c
 
 ## Bind explicitly
 
-After the PM explicitly picks one candidate, restate the binding ("把《<item 标题>》关联到 <文章标题>") and only then call:
-
-```bash
-curl -sS -X POST "$KB_WRITER_API_BASE_URL/v1/intent-workspaces/{workspaceId}/manifest/items/{itemKey}/select-target" \
-  -H "Authorization: Bearer $KB_WRITER_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: <key>" \
-  -d '{"expectedManifestId": <currentManifestId>, "articleId": "<articleId>", "targetSnapshotId": "<targetSnapshotId>"}'
-```
+After the PM explicitly picks one candidate, restate the binding ("把《<item 标题>》关联到 <文章标题>") and only then call `select_update_target` with the current Manifest, selected target, and idempotency values.
 
 Never bind a target without the PM's explicit selection. Never pick the top-ranked candidate automatically.
 
 ## Verify
 
-After binding, call `GET /v1/intent-workspaces/{workspaceId}/manifest` and confirm the item's `blockersJson` no longer contains `missing_target`. Report the item's readiness.
+After binding, confirm the item is ready. Reply with the selected article, what will be updated, and the next action. Do not expose internal identifiers, status fields, versions, API paths, or request parameters unless the PM asks for technical detail.

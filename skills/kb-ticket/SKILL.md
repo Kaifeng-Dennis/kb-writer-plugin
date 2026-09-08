@@ -44,16 +44,13 @@ curl -sS "$KB_WRITER_API_BASE_URL/v1/intent-workspaces/resolve/jira/$JIRA_KEY" \
 
 Present the current state and suggest the next action based on what the ticket actually supports:
 
-**Ticket does not exist** (404 from `/v1/workflow/tickets/{key}`): Say that the ticket is not yet in the KB Writer backlog, then ask whether the PM wants to work on the ticket. Do not create a workspace, promote the ticket, or make any other write until the PM explicitly agrees.
+**Ticket does not exist**: Reply only:
 
-On an explicit affirmative answer, promote it through the same endpoint as the browser's manual **Add to KB Writer** action:
+> **<JIRA key> is not in KB Writer yet.**
+>
+> Would you like to work on it?
 
-```bash
-curl -sS -X POST "$KB_WRITER_API_BASE_URL/v1/workflow/tickets/$JIRA_KEY/promote?manualAdd=true" \
-  -H "Authorization: Bearer $KB_WRITER_ACCESS_TOKEN"
-```
-
-Only promote after an explicit affirmative answer. `manualAdd=true` is the authoritative manual-add flow: it resolves the Jira ticket, creates or refreshes its intake projection, and applies the normal promotion rules. Never substitute a direct Intent Workspace creation call. After a successful promotion, read the ticket intake state and workspace binding again, then continue with the matching state branch below. If the PM declines, leave the ticket unchanged; if promotion fails, report the returned reason and do not claim work has started.
+Do not create a workspace, promote the ticket, or make any other write until the PM explicitly agrees. On an explicit affirmative answer, call the `promote_ticket` MCP tool with `{"jira_key": "<JIRA key>"}`. This is the same manual-add action as the browser UI; never substitute direct Intent Workspace creation. After success, read the ticket intake state and workspace binding again, then reply with the user-relevant state and one next action. If the PM declines, leave the ticket unchanged. If promotion fails, explain only what the PM can do next.
 
 **Ticket exists, no workspace** (404 from `resolve/jira`): The ticket is in the backlog but has not been through the intent workspace flow. Report the ticket's intake status and offer these actions based on the pause type:
 
@@ -84,4 +81,4 @@ Only promote after an explicit affirmative answer. `manualAdd=true` is the autho
 
 **Workspace ARCHIVED**: Report that the workspace is archived. Ask if the PM wants to create a new workspace for follow-up work.
 
-Never assume the PM wants to create a workspace just because one does not exist. Always present the current state and let the PM choose the next action.
+Never assume the PM wants to create a workspace just because one does not exist. Always present the current state and let the PM choose the next action. In every main reply, include only the outcome, what it means for the PM, and one next action; do not expose API paths, status codes, internal state names, IDs, versions, or concurrency tokens unless the PM asks for technical detail.

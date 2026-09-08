@@ -1,5 +1,6 @@
 export const APPROVED_CAPABILITY_NAMES = [
     'list_my_workspaces',
+    'promote_ticket',
     'resolve_workspace_by_jira_key',
     'get_workspace',
     'get_planning_status',
@@ -104,6 +105,12 @@ function requestSpec(name, args) {
                     ['limit', 'limit'],
                     ['cursor', 'cursor'],
                 ]),
+            };
+        case 'promote_ticket':
+            return {
+                method: 'POST',
+                path: `/v1/workflow/tickets/${segment(required(args, 'jira_key'))}/promote`,
+                query: new URLSearchParams([['manualAdd', 'true']]),
             };
         case 'resolve_workspace_by_jira_key':
             return { method: 'GET', path: `/v1/intent-workspaces/resolve/jira/${segment(required(args, 'jira_key'))}` };

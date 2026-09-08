@@ -48,6 +48,7 @@ interface ToolDefinition {
 
 const ARGUMENTS: Record<ApprovedCapabilityName, readonly [string[], string[]]> = {
   list_my_workspaces: [[], ['status', 'limit', 'cursor']],
+  promote_ticket: [['jira_key'], []],
   resolve_workspace_by_jira_key: [['jira_key'], []],
   get_workspace: [['workspace_id'], []],
   get_planning_status: [['planning_job_id'], []],
