@@ -242,6 +242,9 @@ function requestSpec(name, args) {
         case 'submit_draft_for_content_review':
             return post(`${taskPath()}/submit-content-review`, {
                 expectedWorkItemVersion: required(args, 'expected_work_item_version'),
+                ...(typeof args.content_owner_identity === 'string' && args.content_owner_identity.trim()
+                    ? { contentOwnerIdentity: args.content_owner_identity.trim() }
+                    : {}),
             }, idempotencyKey());
         case 'approve_content_for_publish':
             return post(`${taskPath()}/approve-content-for-publish`, {

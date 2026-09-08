@@ -37,7 +37,7 @@ Requires the configured `kb-writer` remote MCP server. MCP is required for state
 Ask the PM which action to take, then call the matching MCP tool with its current version and idempotency values:
 
 - **Assign content owner**: `assign_content_owner`
-- **Submit for content review**: `submit_draft_for_content_review`
+- **Submit for content review**: `submit_draft_for_content_review`. If no owner is assigned, ask the PM to choose one and include `content_owner_identity` in this same call. Do not make the PM perform a separate assignment first.
 - **Approve for publish**: `approve_content_for_publish`
 - **Return to PM review**: `return_content_to_pm_review`
 

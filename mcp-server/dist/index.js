@@ -2,6 +2,12 @@
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { APPROVED_CAPABILITY_NAMES, KbWriterBackendError, KbWriterClient, } from "./kb-writer-client.js";
+const INTEGER_ARGUMENTS = new Set([
+    'workspace_id', 'planning_job_id', 'draft_id', 'failed_planning_job_id',
+    'expected_workspace_version', 'expected_manifest_id', 'preview_job_id',
+    'original_manifest_id', 'work_item_id', 'current_manifest_id', 'expected_version',
+    'expected_work_item_version', 'limit', 'cursor',
+]);
 const ARGUMENTS = {
     list_my_workspaces: [[], ['status', 'limit', 'cursor']],
     promote_ticket: [['jira_key'], []],
@@ -60,7 +66,7 @@ const ARGUMENTS = {
         ], []],
     submit_draft_for_content_review: [[
             'work_item_id', 'expected_work_item_version', 'idempotency_key',
-        ], []],
+        ], ['content_owner_identity']],
     approve_content_for_publish: [[
             'work_item_id', 'expected_work_item_version', 'idempotency_key',
         ], []],
@@ -82,13 +88,25 @@ export const TOOL_DEFINITIONS = APPROVED_CAPABILITY_NAMES.map((name) => {
             type: 'object',
             properties: Object.fromEntries([...required, ...optional].map((argument) => [
                 argument,
-                { description: `KB Writer ${argument} argument; values pass through unchanged.` },
+                {
+                    description: `KB Writer ${argument} argument; values pass through unchanged.`,
+                    ...argumentSchema(argument),
+                },
             ])),
             required: [...required],
             additionalProperties: true,
         },
     };
 });
+function argumentSchema(argument) {
+    if (INTEGER_ARGUMENTS.has(argument))
+        return { type: 'integer' };
+    if (argument === 'reuse_previous_context')
+        return { type: 'boolean' };
+    if (argument === 'selected_item_keys')
+        return { type: 'array', items: { type: 'string' } };
+    return {};
+}
 export function createMcpRequestHandler(client) {
     return async (request) => {
         switch (request.method) {
@@ -116,7 +134,16 @@ export function createMcpRequestHandler(client) {
                 }
                 const rawArguments = request.params?.arguments;
                 const args = isObject(rawArguments) ? rawArguments : {};
-                const result = await client.callCapability(name, args);
+                let result;
+                try {
+                    result = await client.callCapability(name, args);
+                }
+                catch (error) {
+                    if (error instanceof KbWriterBackendError && isExpectedWorkflowFailure(error)) {
+                        return workflowFailure(error);
+                    }
+                    throw error;
+                }
                 const structuredContent = isObject(result) ? { structuredContent: result } : {};
                 return {
                     result: {
@@ -129,6 +156,39 @@ export function createMcpRequestHandler(client) {
                 throw new McpRequestError(-32601, 'Method not found');
         }
     };
+}
+function workflowFailure(error) {
+    const backend = isObject(error.details) ? error.details : {};
+    const code = typeof backend.code === 'string' ? backend.code : `HTTP_${error.status}`;
+    const message = typeof backend.message === 'string' ? backend.message : error.message;
+    const nextAction = workflowNextAction(code, error.status);
+    const structuredContent = { code, message, next_action: nextAction };
+    return {
+        result: {
+            content: [{ type: 'text', text: JSON.stringify(structuredContent) }],
+            structuredContent,
+            isError: true,
+        },
+    };
+}
+function workflowNextAction(code, status) {
+    if (code === 'CONTENT_OWNER_REQUIRED')
+        return 'Choose a content owner, then submit again.';
+    if (code === 'VERSION_CONFLICT' || status === 409)
+        return 'Refresh the current item, then retry.';
+    if (status === 401)
+        return 'Reconnect KB Writer, then retry.';
+    if (status === 403)
+        return 'Use an identity that is allowed to perform this action.';
+    if (status === 404)
+        return 'Refresh the current ticket or workspace before retrying.';
+    return 'Resolve the reported condition, then retry.';
+}
+function isExpectedWorkflowFailure(error) {
+    if ([401, 403, 404, 409, 422].includes(error.status))
+        return true;
+    const backend = isObject(error.details) ? error.details : {};
+    return backend.code === 'CONTENT_OWNER_REQUIRED' || backend.code === 'VERSION_CONFLICT';
 }
 class McpRequestError extends Error {
     code;
