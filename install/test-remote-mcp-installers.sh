@@ -26,45 +26,46 @@ assert 'unrelated-server' in codex
 PYEOF
 }
 
-# Both Claude clients must end up configured: Claude Code from settings.json and
-# Cowork from cowork_settings.json. Neither may hold the token in plaintext, and
-# unrelated entries already in the file must survive the rewrite.
+# Claude Code is the only Claude target. The token belongs in pluginConfigs,
+# which is where Claude resolves ${user_config.KB_WRITER_ACCESS_TOKEN} from --
+# not in `env`, which would export it to every process Claude spawns. Unrelated
+# entries already in the file must survive the rewrite.
 assert_claude_configured() {
-  python3 - "$1/.claude/settings.json" "$1/.claude/cowork_settings.json" <<'PYEOF'
+  python3 - "$1/.claude/settings.json" <<'PYEOF'
 import json, sys
-for path in sys.argv[1:3]:
-    settings = json.load(open(path))
-    assert settings['env']['KB_WRITER_API_BASE_URL'] == 'https://example.test/base', path
-    assert 'KB_WRITER_ACCESS_TOKEN' not in settings['env'], path
-    assert settings['enabledPlugins']['kb-writer@kb-writer'] is True, path
-    assert settings['extraKnownMarketplaces']['kb-writer']['autoUpdate'] is True, path
-
-preexisting = json.load(open(sys.argv[1]))['mcpServers']['unrelated-server']
-assert preexisting['url'] == 'https://other.example/mcp'
+settings = json.load(open(sys.argv[1]))
+assert settings['env']['KB_WRITER_API_BASE_URL'] == 'https://example.test/base'
+assert 'KB_WRITER_ACCESS_TOKEN' not in settings['env']
+options = settings['pluginConfigs']['kb-writer@kb-writer']['options']
+assert options['KB_WRITER_ACCESS_TOKEN'] == 'kbw_pat_test'
+assert settings['enabledPlugins']['kb-writer@kb-writer'] is True
+assert settings['extraKnownMarketplaces']['kb-writer']['autoUpdate'] is True
+assert settings['mcpServers']['unrelated-server']['url'] == 'https://other.example/mcp'
 PYEOF
 }
 
-# The token reaches the keychain only through `claude plugin install --config`,
-# once per client, and no installer may go back to registering its own copy of
-# the remote MCP with `claude mcp add`.
+# Cowork support was dropped: its desktop app resolves plugins from the
+# account-level marketplace, so writing cowork_settings.json / cowork_plugins/
+# configured nothing while still printing a success line. No installer may
+# recreate those paths, and none may pass --cowork to the CLI.
+assert_no_cowork() {
+  local home="$1" command_log="$2"
+  [ ! -e "$home/.claude/cowork_settings.json" ] || { echo 'installer wrote cowork_settings.json'; exit 1; }
+  [ ! -e "$home/.claude/cowork_plugins" ] || { echo 'installer created cowork_plugins/'; exit 1; }
+  ! grep -qa -- '--cowork' "$command_log" || { echo 'installer passed --cowork to the CLI'; exit 1; }
+}
+
+# The token is written to settings.json directly, so no installer may hand it to
+# `claude plugin install --config`: that command exits 0 and prints a success
+# line whether or not it stored anything, which is what used to leave clients
+# with an unusable plugin. Nor may an installer go back to registering its own
+# copy of the remote MCP with `claude mcp add`.
 assert_token_handoff() {
   python3 - "$1" <<'PYEOF'
 import sys
 commands = [part.decode() for part in open(sys.argv[1], 'rb').read().split(b'\0')[:-1]]
-config_arg = 'KB_WRITER_ACCESS_TOKEN=kbw_pat_test'
-
-calls = []
-for index, token in enumerate(commands):
-    if token == 'install':
-        calls.append(commands[index:index + 8])
-
-expected = [
-    ['install', 'kb-writer@kb-writer', '--scope', 'user', '--yes',
-     '--config', config_arg],
-    ['install', 'kb-writer@kb-writer', '--scope', 'user', '--yes', '--cowork',
-     '--config', config_arg],
-]
-assert [call[:len(want)] for call, want in zip(calls, expected)] == expected, calls
+assert '--config' not in commands, commands
+assert not any('kbw_pat_test' in command for command in commands), 'token handed to the CLI'
 assert 'mcp' not in commands, commands
 PYEOF
 }
@@ -112,11 +113,12 @@ for installer in "${CLAUDE_INSTALLERS[@]}"; do
   [[ "$installer_output" != *'kbw_pat_test'* ]] || { echo "installer leaked token: $installer"; exit 1; }
   assert_claude_configured "$TEMP_HOME"
   assert_token_handoff "$TEMP_HOME/claude-commands"
+  assert_no_cowork "$TEMP_HOME" "$TEMP_HOME/claude-commands"
 done
 
-# The desktop installer must also work with no claude CLI on PATH: everything
-# except the keychain write still has to happen, and it has to say why the token
-# was not stored.
+# The desktop installer clones the marketplace itself, and now writes the token
+# itself too, so it must configure Claude Code completely with no claude CLI on
+# PATH at all.
 seed_home "$NO_TOKEN_HOME"
 no_cli_output=$(env -i PATH=/usr/bin:/bin HOME="$NO_TOKEN_HOME" \
   KB_WRITER_INSTALL_SKIP_PLUGIN=1 \
@@ -124,7 +126,7 @@ no_cli_output=$(env -i PATH=/usr/bin:/bin HOME="$NO_TOKEN_HOME" \
   KB_WRITER_ACCESS_TOKEN='kbw_pat_test' \
   bash "$ROOT_DIR/integrations/install/claude.sh")
 [[ "$no_cli_output" != *'kbw_pat_test'* ]] || { echo 'no-CLI installer leaked token'; exit 1; }
-[[ "$no_cli_output" == *'claude CLI is not on PATH'* ]] || { echo 'no-CLI installer did not explain the missing keychain write'; exit 1; }
+[[ "$no_cli_output" != *'Could not store the access token'* ]] || { echo 'no-CLI installer failed to store the token'; exit 1; }
 assert_claude_configured "$NO_TOKEN_HOME"
 
 for installer in "${CLAUDE_INSTALLERS[@]}"; do
@@ -140,49 +142,58 @@ for installer in "${CLAUDE_INSTALLERS[@]}"; do
     HOME="$NO_TOKEN_HOME" KB_WRITER_INSTALL_SKIP_PLUGIN=1 bash "$installer" >/dev/null
   [ ! -s "$NO_TOKEN_HOME/claude-commands" ] || { echo "installer called claude without a token: $installer"; exit 1; }
   python3 - "$NO_TOKEN_HOME/.codex/config.toml" \
-    "$NO_TOKEN_HOME/.claude/settings.json" \
-    "$NO_TOKEN_HOME/.claude/cowork_settings.json" <<'PYEOF'
+    "$NO_TOKEN_HOME/.claude/settings.json" <<'PYEOF'
 import json, sys
 assert '[mcp_servers.kb-writer]' not in open(sys.argv[1]).read()
-for path in sys.argv[2:4]:
-    settings = json.load(open(path))
-    assert 'kb-writer' not in settings.get('mcpServers', {}), path
-    # Without a token the plugin is still registered and pointed at production;
-    # only the keychain write is deferred to /plugin configure.
-    assert settings['env'] == {
-        'KB_WRITER_API_BASE_URL': 'https://kb-companion.int.rclabenv.com'
-    }, path
-    assert settings['enabledPlugins']['kb-writer@kb-writer'] is True, path
+settings = json.load(open(sys.argv[2]))
+assert 'kb-writer' not in settings.get('mcpServers', {})
+# Without a token the plugin is still registered and pointed at production, and
+# nothing half-written is left in pluginConfigs; supplying the token is deferred
+# to a re-run or /plugin configure.
+assert settings['env'] == {'KB_WRITER_API_BASE_URL': 'https://kb-companion.int.rclabenv.com'}
+assert 'kb-writer@kb-writer' not in settings.get('pluginConfigs', {})
+assert settings['enabledPlugins']['kb-writer@kb-writer'] is True
 PYEOF
 done
 
-# `claude plugin install --config` prints "Installed, but --config not applied"
-# and exits 0 when the installed manifest has no such userConfig option -- which
-# is what a marketplace serving an older plugin version looks like. Swallowing
-# that made the installer claim a keychain write that never happened and leave
-# the client with zero kb-writer tools, so it must now fail loudly instead.
-REFUSED_HOME="$(mktemp -d)"
-trap 'rm -rf "$TEMP_HOME" "$NO_TOKEN_HOME" "$REFUSED_HOME"' EXIT
-seed_home "$REFUSED_HOME"
-mkdir -p "$REFUSED_HOME/bin"
-cat > "$REFUSED_HOME/bin/claude" <<'EOF'
-#!/usr/bin/env bash
-echo '⚠ Installed, but --config not applied: --config was given but plugin "kb-writer@kb-writer" declares no userConfig options.'
-exit 0
-EOF
-chmod +x "$REFUSED_HOME/bin/claude"
-
+# A re-run with a new token has to rotate the stored one rather than leave the
+# stale value in place.
+ROTATE_HOME="$(mktemp -d)"
+trap 'rm -rf "$TEMP_HOME" "$NO_TOKEN_HOME" "$ROTATE_HOME"' EXIT
 for installer in "${CLAUDE_INSTALLERS[@]}"; do
-  refused_status=0
-  refused_output=$(PATH="$REFUSED_HOME/bin:$PATH" HOME="$REFUSED_HOME" \
+  seed_home "$ROTATE_HOME"
+  cat > "$ROTATE_HOME/.claude/settings.json" <<'EOF'
+{"pluginConfigs":{"kb-writer@kb-writer":{"options":{"KB_WRITER_ACCESS_TOKEN":"kbw_pat_stale"}}}}
+EOF
+  PATH="$TEMP_HOME/bin:$PATH" CLAUDE_COMMAND_LOG="$ROTATE_HOME/claude-commands" \
+    HOME="$ROTATE_HOME" KB_WRITER_INSTALL_SKIP_PLUGIN=1 \
+    KB_WRITER_API_BASE_URL='https://example.test/base/' \
+    KB_WRITER_ACCESS_TOKEN='kbw_pat_test' bash "$installer" >/dev/null
+  python3 - "$ROTATE_HOME/.claude/settings.json" <<'PYEOF'
+import json, sys
+options = json.load(open(sys.argv[1]))['pluginConfigs']['kb-writer@kb-writer']['options']
+assert options['KB_WRITER_ACCESS_TOKEN'] == 'kbw_pat_test'
+PYEOF
+done
+
+# When the token cannot be written, the installer must fail loudly instead of
+# printing a success line for a client that will come up with zero kb-writer
+# tools -- the regression this whole verification path exists for. An unwritable
+# settings file stands in for any reason the write does not land.
+for installer in "${CLAUDE_INSTALLERS[@]}"; do
+  seed_home "$ROTATE_HOME"
+  rm -f "$ROTATE_HOME/.claude/settings.json"
+  mkdir -p "$ROTATE_HOME/.claude/settings.json"
+  blocked_status=0
+  blocked_output=$(PATH="$TEMP_HOME/bin:$PATH" \
+    CLAUDE_COMMAND_LOG="$ROTATE_HOME/claude-commands" HOME="$ROTATE_HOME" \
     KB_WRITER_INSTALL_SKIP_PLUGIN=1 \
     KB_WRITER_API_BASE_URL='https://example.test/base/' \
-    KB_WRITER_ACCESS_TOKEN='kbw_pat_test' bash "$installer" 2>&1) || refused_status=$?
-  [ "$refused_status" -ne 0 ] || { echo "installer reported success despite a refused --config: $installer"; exit 1; }
-  [[ "$refused_output" != *'Stored the access token'* ]] || { echo "installer falsely claimed a keychain write: $installer"; exit 1; }
-  [[ "$refused_output" == *'Could not store the access token'* ]] || { echo "installer did not report the failed --config: $installer"; exit 1; }
-  [[ "$refused_output" == *'declares no userConfig options'* ]] || { echo "installer dropped the CLI's reason: $installer"; exit 1; }
-  [[ "$refused_output" != *'kbw_pat_test'* ]] || { echo "installer leaked token on failure: $installer"; exit 1; }
+    KB_WRITER_ACCESS_TOKEN='kbw_pat_test' bash "$installer" 2>&1) || blocked_status=$?
+  rmdir "$ROTATE_HOME/.claude/settings.json"
+  [ "$blocked_status" -ne 0 ] || { echo "installer reported success despite an unwritable settings file: $installer"; exit 1; }
+  [[ "$blocked_output" != *'Stored the access token'* ]] || { echo "installer falsely claimed a token write: $installer"; exit 1; }
+  [[ "$blocked_output" != *'kbw_pat_test'* ]] || { echo "installer leaked token on failure: $installer"; exit 1; }
 done
 
 echo 'remote MCP installer configuration verified'

@@ -2,7 +2,7 @@
   "name": "kb-writer",
   "displayName": "KB Writer",
   "description": "Work on KB tickets and intent workspaces from Claude. Check status, update plans, review drafts, and publish articles.",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "author": {
     "name": "Smart KB team"
   },
@@ -10,7 +10,7 @@
     "KB_WRITER_ACCESS_TOKEN": {
       "type": "string",
       "title": "KB Writer access token",
-      "description": "Personal access token (kbw_pat_...) from KB Writer -> avatar menu -> Claude Plugin Setup. Stored in your OS keychain, never in settings.json.",
+      "description": "Personal access token (kbw_pat_...) from KB Writer -> avatar menu -> Claude Plugin Setup. Pasting it here stores it in your OS keychain; the install script instead writes it to pluginConfigs in your user settings.",
       "required": true,
       "sensitive": true
     }

@@ -26,15 +26,26 @@ Do not run any shell command for tracking. If the MCP tool is unavailable or err
 The two clients store the access token in completely different places, so decide
 this first and follow only that client's branch for the rest of the skill:
 
-- **Claude** (Claude Code or Cowork) — the token is the plugin's
-  `KB_WRITER_ACCESS_TOKEN` userConfig option, declared `sensitive`, so Claude
-  keeps it in the OS keychain and expands it as
-  `${user_config.KB_WRITER_ACCESS_TOKEN}` inside the plugin's `.mcp.json`. It is
-  never an environment variable and never belongs in a settings file.
+- **Claude Code** — the token is the plugin's `KB_WRITER_ACCESS_TOKEN`
+  userConfig option, expanded as `${user_config.KB_WRITER_ACCESS_TOKEN}` inside
+  the plugin's `.mcp.json`. Claude resolves it from
+  `pluginConfigs["kb-writer@kb-writer"].options` in `~/.claude/settings.json`,
+  where the install script writes it; pasting it into `/plugin configure`
+  instead stores it in the OS keychain. Either way it is never an environment
+  variable.
 - **Codex** — there is no userConfig mechanism; `~/.codex/config.toml` holds both
   `[env]` and `[mcp_servers.kb-writer]`, with the token in plaintext.
 
 If it is not obvious, ask the PM which app they are in rather than guessing.
+
+**Claude Cowork is not supported.** Its desktop app resolves plugins from the
+account-level (server-side) marketplace and reads nothing under `~/.claude`, so
+the install script cannot reach it. If the PM is in Cowork, tell them to add
+`https://github.com/Kaifeng-Dennis/kb-writer-plugin` through Customize →
+Plugins → **+** → Add marketplace, install kb-writer there, and paste the token
+into Cowork's own prompt. Cowork has no way to set `KB_WRITER_API_BASE_URL`, so
+it can only reach production — a stage or localhost token will not authenticate.
+Do not offer to run the install script for a Cowork user.
 
 ## Step 1 — Detect current state
 
@@ -51,7 +62,7 @@ The base URL is not a secret and is not a userConfig option on either client, so
 it stays a plain `KB_WRITER_API_BASE_URL` entry.
 
 - If unset, tell the PM the default `https://kb-companion.int.rclabenv.com` (production) will be used. Only ask for a URL when they are targeting a local or non-default environment.
-- When it must be overridden, write it where that client reads it: `env` in `~/.claude/settings.json` (Claude Code) or `~/.claude/cowork_settings.json` (Cowork) — separate files, each client reads only its own — or `[env]` in `~/.codex/config.toml` (Codex). macOS GUI apps do not inherit shell `export`s, so a shell profile is not enough for Claude or Codex desktop apps.
+- When it must be overridden, write it where that client reads it: `env` in `~/.claude/settings.json` (Claude Code) or `[env]` in `~/.codex/config.toml` (Codex). macOS GUI apps do not inherit shell `export`s, so a shell profile is not enough for Claude or Codex desktop apps.
 - If the URL is unreachable and it is a localhost URL, offer to start the local backend (`./scripts/dev.sh` in the smart-kb repo) or let the PM start it themselves. If the production URL is unreachable, tell the PM to check VPN/network access to `int.rclabenv.com`. Do not block: they may configure later.
 
 ## Step 3 — Get a personal access token from the KB Writer page
@@ -61,8 +72,8 @@ Only when the token is missing:
 1. Direct the PM to the KB Writer web app (production: `https://kb-companion.int.rclabenv.com`, or their local `$KB_WRITER_API_BASE_URL`), sign in, then open the avatar menu (top right) → **Claude Plugin Setup**, and pick their client's tab. Every option there issues a personal access token (`kbw_pat_...`, valid 1 year, revocable).
 
    **Claude:**
-   - **Generate token & copy install command** — one command that configures Claude Code and Cowork and writes the token to the OS keychain. Preferred.
-   - **Manual setup** → **Generate token & copy it** — the PM then pastes the token into `/plugin configure kb-writer@kb-writer`. Do not offer to write the token into a shell profile or any settings file; Claude only reads it from the keychain.
+   - **Generate token & copy install command** — one command that configures Claude Code and writes the token into `pluginConfigs`. Preferred.
+   - **Manual setup** → **Generate token & copy it** — the PM then pastes the token into `/plugin configure kb-writer@kb-writer`, which stores it in the OS keychain. Do not offer to write the token into a shell profile or into `env`; Claude only reads it as a plugin option.
 
    **Codex:**
    - **Generate token & copy install command** — runs `install/codex.sh`, which writes `[env]` and `[mcp_servers.kb-writer]` into `~/.codex/config.toml`. Preferred.
