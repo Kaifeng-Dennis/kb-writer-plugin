@@ -1,19 +1,41 @@
 #!/usr/bin/env bash
-# One-shot installer and updater for the KB Writer Claude Code plugin.
+# One-shot installer and updater for the KB Writer plugin, for both Claude Code
+# and Claude Cowork.
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/Kaifeng-Dennis/kb-writer-plugin/main/install/claude.sh | bash
 #   curl -fsSL ... | KB_WRITER_ACCESS_TOKEN=kbw_pat_xxx bash
+#
+# The access token is handed to `claude plugin install --config`, which stores it
+# in the OS keychain because the plugin manifest declares KB_WRITER_ACCESS_TOKEN
+# as a sensitive userConfig option. It is never written to settings.json, and the
+# plugin's own .mcp.json reads it back as ${user_config.KB_WRITER_ACCESS_TOKEN}.
+#
+# Cowork keeps a separate configuration root from Claude Code: user settings live
+# in cowork_settings.json and plugins in cowork_plugins/, both reached by passing
+# --cowork to `claude plugin`. Configuring only one of the two leaves the other
+# client without KB Writer, so every step below runs once per client.
+#
+# This is a fresh-install path only. It does not migrate configuration written by
+# earlier installers; anyone upgrading from one of those has to clear the old
+# plaintext token and MCP registration themselves.
 set -euo pipefail
 
 MARKETPLACE_NAME="kb-writer"
 PLUGIN_NAME="kb-writer"
 PLUGIN_ID="${PLUGIN_NAME}@${MARKETPLACE_NAME}"
 REPO_GITHUB="Kaifeng-Dennis/kb-writer-plugin"
-API_BASE_URL="${KB_WRITER_API_BASE_URL:-https://kb-companion.int.rclabenv.com}"
+DEFAULT_API_BASE_URL="https://kb-companion.int.rclabenv.com"
+API_BASE_URL="${KB_WRITER_API_BASE_URL:-$DEFAULT_API_BASE_URL}"
 ACCESS_TOKEN="${KB_WRITER_ACCESS_TOKEN:-}"
 SKIP_PLUGIN_INSTALL="${KB_WRITER_INSTALL_SKIP_PLUGIN:-}"
-SETTINGS_FILE="${HOME}/.claude/settings.json"
+CLAUDE_DIR="${HOME}/.claude"
+
+# "<label>|<user settings file>|<claude plugin flag>"
+TARGETS=(
+  "Claude Code|${CLAUDE_DIR}/settings.json|"
+  "Claude Cowork|${CLAUDE_DIR}/cowork_settings.json|--cowork"
+)
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*"; }
@@ -23,8 +45,10 @@ if [ -z "$SKIP_PLUGIN_INSTALL" ]; then
 fi
 command -v python3 >/dev/null 2>&1 || { echo "python3 is required"; exit 1; }
 
+# $1 is either empty or --cowork; it never contains spaces, so leaving the
+# expansion unquoted is how an absent flag collapses to no argument at all.
 marketplace_exists() {
-  claude plugin marketplace list --json | python3 -c '
+  claude plugin marketplace list ${1} --json | python3 -c '
 import json, sys
 marketplace = sys.argv[1]
 sys.exit(0 if any(item.get("name") == marketplace for item in json.load(sys.stdin)) else 1)
@@ -32,71 +56,87 @@ sys.exit(0 if any(item.get("name") == marketplace for item in json.load(sys.stdi
 }
 
 plugin_exists() {
-  claude plugin list --json | python3 -c '
+  claude plugin list ${1} --json | python3 -c '
 import json, sys
 plugin_id = sys.argv[1]
 sys.exit(0 if any(item.get("id") == plugin_id and item.get("scope") == "user" for item in json.load(sys.stdin)) else 1)
 ' "$PLUGIN_ID"
 }
 
-if [ -n "$SKIP_PLUGIN_INSTALL" ]; then
-  info "Skipping plugin installation for configuration verification"
-elif marketplace_exists >/dev/null; then
-  info "Refreshing KB Writer marketplace"
-  claude plugin marketplace update "$MARKETPLACE_NAME"
-else
-  info "Adding KB Writer marketplace"
-  claude plugin marketplace add "$REPO_GITHUB"
-fi
-
-if [ -n "$SKIP_PLUGIN_INSTALL" ]; then
-  :
-elif plugin_exists; then
-  info "Updating ${PLUGIN_ID}"
-  claude plugin update "$PLUGIN_ID" --scope user
-else
-  info "Installing ${PLUGIN_ID}"
-  claude plugin install "$PLUGIN_ID" --scope user
-fi
-
-mkdir -p "$(dirname "$SETTINGS_FILE")"
-[ -f "$SETTINGS_FILE" ] || echo '{}' > "$SETTINGS_FILE"
-
-info "Enabling KB Writer marketplace auto-update"
-export SETTINGS_FILE MARKETPLACE_NAME PLUGIN_ID REPO_GITHUB API_BASE_URL ACCESS_TOKEN
-python3 << 'PYEOF'
+patch_settings() {
+  local settings_file="$1"
+  mkdir -p "$(dirname "$settings_file")"
+  [ -f "$settings_file" ] || echo '{}' > "$settings_file"
+  SETTINGS_FILE="$settings_file" \
+  MARKETPLACE_NAME="$MARKETPLACE_NAME" \
+  PLUGIN_ID="$PLUGIN_ID" \
+  REPO_GITHUB="$REPO_GITHUB" \
+  API_BASE_URL="$API_BASE_URL" \
+  python3 << 'PYEOF'
 import json, os
 
 settings_path = os.environ['SETTINGS_FILE']
 settings = json.load(open(settings_path))
-marketplace = os.environ['MARKETPLACE_NAME']
-settings.setdefault('extraKnownMarketplaces', {})[marketplace] = {
+
+settings.setdefault('extraKnownMarketplaces', {})[os.environ['MARKETPLACE_NAME']] = {
     'source': {'source': 'github', 'repo': os.environ['REPO_GITHUB']},
     'autoUpdate': True,
 }
 settings.setdefault('enabledPlugins', {})[os.environ['PLUGIN_ID']] = True
-legacy_mcp_servers = settings.get('mcpServers')
-if legacy_mcp_servers:
-    legacy_mcp_servers.pop('kb-writer', None)
-if os.environ.get('ACCESS_TOKEN'):
-    env = settings.setdefault('env', {})
-    env['KB_WRITER_API_BASE_URL'] = os.environ['API_BASE_URL']
-    env['KB_WRITER_ACCESS_TOKEN'] = os.environ['ACCESS_TOKEN']
+
+# The base URL is not a secret and has a safe default baked into the plugin's
+# .mcp.json, so it stays a plain env entry. Trailing slashes would turn the
+# server URL into "...//mcp".
+settings.setdefault('env', {})['KB_WRITER_API_BASE_URL'] = os.environ['API_BASE_URL'].rstrip('/')
+
 json.dump(settings, open(settings_path, 'w'), indent=2)
 PYEOF
+}
 
-if [ -n "$ACCESS_TOKEN" ]; then
-  claude mcp remove kb-writer --scope user 2>/dev/null || true
-  claude mcp add kb-writer "${API_BASE_URL%/}/mcp" \
-    --scope user \
-    --transport http \
-    --header "Authorization: Bearer ${ACCESS_TOKEN}"
-  info "Wrote KB Writer environment settings and registered its remote MCP"
-else
+configured_clients=0
+
+for target in "${TARGETS[@]}"; do
+  IFS='|' read -r label settings_file flag <<< "$target"
+  info "Configuring ${label}"
+
+  if [ -n "$SKIP_PLUGIN_INSTALL" ]; then
+    info "Skipping marketplace and plugin installation for configuration verification"
+  elif marketplace_exists "$flag" >/dev/null; then
+    info "Refreshing KB Writer marketplace"
+    claude plugin marketplace update "$MARKETPLACE_NAME" ${flag}
+  else
+    info "Adding KB Writer marketplace"
+    claude plugin marketplace add "$REPO_GITHUB" ${flag}
+  fi
+
+  if [ -n "$SKIP_PLUGIN_INSTALL" ]; then
+    :
+  elif plugin_exists "$flag"; then
+    info "Updating ${PLUGIN_ID}"
+    claude plugin update "$PLUGIN_ID" --scope user ${flag}
+  else
+    info "Installing ${PLUGIN_ID}"
+    claude plugin install "$PLUGIN_ID" --scope user --yes ${flag}
+  fi
+
+  patch_settings "$settings_file"
+
+  if [ -n "$ACCESS_TOKEN" ]; then
+    # Re-running install against an already-installed plugin is how the CLI
+    # applies --config without a prompt, so this doubles as token rotation.
+    # Output is dropped so a failing call cannot echo the token back.
+    claude plugin install "$PLUGIN_ID" --scope user --yes ${flag} \
+      --config "KB_WRITER_ACCESS_TOKEN=${ACCESS_TOKEN}" >/dev/null 2>&1
+    info "Stored the access token in the OS keychain for ${label}"
+    configured_clients=$((configured_clients + 1))
+  fi
+done
+
+if [ "$configured_clients" -eq 0 ]; then
   warn "No KB_WRITER_ACCESS_TOKEN provided."
-  warn "Get one from KB Writer (avatar menu → Claude Plugin Setup → Generate token), then either:"
+  warn "Get one from KB Writer (avatar menu -> Claude Plugin Setup -> Generate token), then either:"
   warn "  1) re-run: KB_WRITER_ACCESS_TOKEN=kbw_pat_xxx bash <this script>, or"
-  warn "  2) export it in your shell profile (~/.zshrc)"
+  warn "  2) run \`/plugin configure ${PLUGIN_ID}\` in Claude and paste it there"
 fi
 
 info "Done. Restart Claude, then open a new thread to load KB Writer."

@@ -13,38 +13,78 @@ KB Writer 插件的 skill 运行时依赖两类 MCP server：
 
 ## 1. kb-writer MCP server
 
-用 PAT 运行 installer 时，会自动在 Codex 或 Claude 的用户配置中注册名为 `kb-writer` 的 remote MCP。Claude installer 使用 `claude mcp add --transport http`，由 Claude CLI 写入正确的用户配置和 transport 类型，而不是手写 JSON。installer 同时保留两个环境变量，供未支持 MCP 的 skill HTTP fallback 使用：
+`kb-writer` remote MCP 由插件根目录的 `.mcp.json` 提供，装上插件就有，**不需要**手工 `claude mcp add`，也不要把 `mcpServers` JSON 粘到 `~/.claude/settings.json`（会让同一批工具重复出现两次）。它只需要两项配置：
 
-```bash
-export KB_WRITER_API_BASE_URL="https://kb-companion.int.rclabenv.com"   # 可选；不设置时默认就是这个生产地址
-export KB_WRITER_ACCESS_TOKEN="<KB Writer 页面 Claude Plugin Setup 生成的 PAT（kbw_pat_...，长期有效）>"
-```
+| 配置 | 存放位置 | 说明 |
+|---|---|---|
+| `KB_WRITER_ACCESS_TOKEN` | **OS keychain** | 插件 manifest 把它声明为 `sensitive` 的 `userConfig` 选项，`.mcp.json` 以 `${user_config.KB_WRITER_ACCESS_TOKEN}` 读回。任何 settings 文件里都不该出现它 |
+| `KB_WRITER_API_BASE_URL` | 用户 settings 的 `env` | 非敏感；`.mcp.json` 内置生产地址兜底，只在指向 stage/本地时才需要设置 |
 
-例如：
+### Claude Code 与 Cowork 是两套配置
+
+Cowork 的用户级配置与 Claude Code 完全分开，两边都要配，只配一边另一边就没有 KB Writer：
+
+| | Claude Code | Claude Cowork |
+|---|---|---|
+| 用户 settings | `~/.claude/settings.json` | `~/.claude/cowork_settings.json` |
+| 插件根目录 | `~/.claude/plugins/` | `~/.claude/cowork_plugins/` |
+| CLI 开关 | 无 | `claude plugin ... --cowork`（仅支持 `--scope user`） |
+
+### 一键安装（推荐）
+
+在 KB Writer 页面点头像 → **Claude Plugin Setup** → *Generate token & copy install command*，粘贴执行即可。它会对 Claude Code 和 Cowork 各跑一遍，并把 PAT 写进 keychain：
 
 ```bash
 KB_WRITER_ACCESS_TOKEN="kbw_pat_..." \
-  curl -fsSL https://raw.githubusercontent.com/Kaifeng-Dennis/kb-writer-plugin/main/install/codex.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/Kaifeng-Dennis/kb-writer-plugin/main/install/claude.sh | bash
 ```
 
-`KB_WRITER_API_BASE_URL` 未设置时默认生产地址；若设置为本地或 stage 地址，installer 会把其尾部 `/` 去除后注册 `${KB_WRITER_API_BASE_URL}/mcp`。安装后打开新线程（Codex）或重启 Claude 后打开新线程，客户端会发现 remote MCP 工具。
+底层等价于（每个客户端一次，Cowork 那次多带 `--cowork`）：
 
-未提供 PAT 时 installer 只安装插件，不会写入半配置 MCP；获取 PAT 后使用同一命令重新运行即可。
+```bash
+claude plugin install kb-writer@kb-writer --scope user --yes \
+  --config KB_WRITER_ACCESS_TOKEN=kbw_pat_...
+```
 
-### Claude desktop app 的手动 marketplace 安装
+重复执行同一条命令即可轮换 token —— 对已安装的插件再跑一次 `install --config` 就是 CLI 应用配置的方式。
 
-通过 Claude desktop app 添加 marketplace 并安装插件后，插件根目录的 `.mcp.json` 会自动提供 `kb-writer` remote MCP，**不要**再把 `mcpServers` JSON 粘贴到 `~/.claude/settings.json`。只需把环境变量合并到该文件的 `env` 对象：
+### 从旧版本升级需要手动清理一次
+
+installer 只负责全新安装，**不做迁移**。装过旧版的人在跑新 installer 之前，请自行清掉这三处，否则轮换 token 不生效：
+
+```bash
+# 1. 旧版 `claude mcp add --scope user` 注册的 server（连着明文 token），
+#    位于 ~/.claude.json；user scope 同名 server 优先级高于插件自带的
+#    .mcp.json，不删掉就会一直走旧 token。该文件由 Code 和 Cowork 共用。
+claude mcp remove kb-writer --scope user
+```
+
+2. `~/.claude/settings.json`（以及 Cowork 的 `cowork_settings.json`）里 `env.KB_WRITER_ACCESS_TOKEN` 一行 —— 删掉，token 现在只在 keychain。
+3. 同两个文件里按旧文档粘进去的 `mcpServers.kb-writer` —— 删掉，否则同一批工具会出现两遍。
+
+未提供 PAT 时 installer 只安装插件并把 token 步骤留给下面的手动路径。
+
+> `--config KEY=VALUE` 是命令行参数，执行的那几百毫秒内本机其他进程能在进程列表里看到它。单人机器上可接受；若不愿意，走下面的手动路径。
+
+### 手动填 token（desktop app 或不想用 CLI 时）
+
+1. Cowork → Customize → Plugins → **+** → Add marketplace → 填 `https://github.com/Kaifeng-Dennis/kb-writer-plugin`
+2. Browse plugins → 找到 **kb-writer** → Install
+3. 启用时 Claude 会弹出掩码输入框要 `KB_WRITER_ACCESS_TOKEN`，把 PAT 粘进去；之后想改用 `/plugin configure kb-writer@kb-writer`
+
+指向 stage/本地后端时，额外把 base URL 合并进对应客户端的 settings（Cowork 是 `cowork_settings.json`）：
 
 ```json
 {
   "env": {
-    "KB_WRITER_API_BASE_URL": "https://kb-companion.int.rclabenv.com",
-    "KB_WRITER_ACCESS_TOKEN": "kbw_pat_..."
+    "KB_WRITER_API_BASE_URL": "https://kb-companion-stage.int.rclabenv.com"
   }
 }
 ```
 
-重启 Claude desktop app 并打开新线程。macOS GUI 应用不会继承 `~/.zshrc` 的 `export`；Claude Code CLI 用户则可把同样的两个变量写进 shell profile。
+macOS GUI 应用不会继承 `~/.zshrc` 的 `export`，所以 GUI 用户必须走 settings 的 `env`；Claude Code CLI 用户也可以直接写 shell profile。
+
+Codex 侧没有 `userConfig` 这套机制，仍由 `install/codex.sh` 把 `[env]` 和 `[mcp_servers.kb-writer]` 写进 `~/.codex/config.toml`，token 在那里是明文。
 
 ### Remote MCP（Streamable HTTP）
 
@@ -108,3 +148,8 @@ Settings → MCP servers，添加同样的 URL 与 headers（参考 pm-toolkit R
 | 新线程里没有 `pm_toolkit_track` 工具 | MCP 未配置或未刷新 | 检查 config.toml，重开线程 |
 | tracking 有数据但 username=unknown | `jira-read-token` 失效或 `/myself` 不可达 | 重新申请 token |
 | 未发现 `kb-writer` MCP 工具 | 安装后客户端未刷新，或安装时没有 PAT | 用 PAT 重新运行 installer，并打开新线程/重启客户端 |
+| 报 `KB_WRITER_ACCESS_TOKEN isn't set` | `userConfig` 没填 | `/plugin configure kb-writer@kb-writer`，或带 PAT 重跑 installer |
+| Claude Code 里能用、Cowork 里没有 | 只配了 `settings.json`/`plugins/` 一侧 | 重跑 installer（它会覆盖两侧），或手动补 `claude plugin install kb-writer@kb-writer --scope user --cowork` |
+| 同一批工具出现两遍 | 除插件自带的 `.mcp.json` 外还手工注册过 `kb-writer` | 删掉 settings 里的 `mcpServers.kb-writer` |
+| token 轮换后仍是旧的 | keychain 已更新，但 `~/.claude.json` 里还留着旧版 user-scope 注册，优先级更高 | `claude mcp remove kb-writer --scope user`（见上面「从旧版本升级」） |
+| 明明配了 stage 却打到生产 | 只填了 token，没配 `KB_WRITER_API_BASE_URL` | 按上面「手动填 token」把 base URL 写进对应客户端的 settings |

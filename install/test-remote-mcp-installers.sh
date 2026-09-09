@@ -3,85 +3,157 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 TEMP_HOME="$(mktemp -d)"
-trap 'rm -rf "$TEMP_HOME"' EXIT
+NO_TOKEN_HOME="$(mktemp -d)"
+trap 'rm -rf "$TEMP_HOME" "$NO_TOKEN_HOME"' EXIT
 
-assert_configured() {
-  local codex_config="$1/.codex/config.toml"
-  local claude_config="$1/.claude/settings.json"
-  local claude_command_log="$1/claude-commands"
-  python3 - "$codex_config" "$claude_config" "$claude_command_log" <<'PYEOF'
-import json, sys
-codex, claude = (open(path).read() for path in sys.argv[1:3])
-claude_command_log = sys.argv[3]
+CLAUDE_INSTALLERS=(
+  "$ROOT_DIR/integrations/plugins/kb-writer/install/claude.sh"
+  "$ROOT_DIR/integrations/install/claude.sh"
+)
+CODEX_INSTALLERS=(
+  "$ROOT_DIR/integrations/plugins/kb-writer/install/codex.sh"
+  "$ROOT_DIR/integrations/install/codex.sh"
+)
+
+assert_codex_configured() {
+  python3 - "$1/.codex/config.toml" <<'PYEOF'
+import sys
+codex = open(sys.argv[1]).read()
 assert '[mcp_servers.kb-writer]' in codex
 assert 'url = "https://example.test/base/mcp"' in codex
 assert 'Authorization = "Bearer kbw_pat_test"' in codex
 assert 'unrelated-server' in codex
-settings = json.loads(claude)
-assert settings['mcpServers']['unrelated-server']['url'] == 'https://other.example/mcp'
-assert 'kb-writer' not in settings['mcpServers']
-assert settings['env']['KB_WRITER_API_BASE_URL'] == 'https://example.test/base/'
-assert settings['env']['KB_WRITER_ACCESS_TOKEN'] == 'kbw_pat_test'
-
-commands = open(claude_command_log, 'rb').read().split(b'\0')[:-1]
-commands = [part.decode() for part in commands]
-expected_command = [
-    'mcp', 'remove', 'kb-writer', '--scope', 'user',
-    'mcp', 'add', 'kb-writer', 'https://example.test/base/mcp',
-    '--scope', 'user', '--transport', 'http',
-    '--header', 'Authorization: Bearer kbw_pat_test',
-]
-assert commands == expected_command * 2
 PYEOF
 }
 
-mkdir -p "$TEMP_HOME/.codex" "$TEMP_HOME/.claude" "$TEMP_HOME/bin"
+# Both Claude clients must end up configured: Claude Code from settings.json and
+# Cowork from cowork_settings.json. Neither may hold the token in plaintext, and
+# unrelated entries already in the file must survive the rewrite.
+assert_claude_configured() {
+  python3 - "$1/.claude/settings.json" "$1/.claude/cowork_settings.json" <<'PYEOF'
+import json, sys
+for path in sys.argv[1:3]:
+    settings = json.load(open(path))
+    assert settings['env']['KB_WRITER_API_BASE_URL'] == 'https://example.test/base', path
+    assert 'KB_WRITER_ACCESS_TOKEN' not in settings['env'], path
+    assert settings['enabledPlugins']['kb-writer@kb-writer'] is True, path
+    assert settings['extraKnownMarketplaces']['kb-writer']['autoUpdate'] is True, path
+
+preexisting = json.load(open(sys.argv[1]))['mcpServers']['unrelated-server']
+assert preexisting['url'] == 'https://other.example/mcp'
+PYEOF
+}
+
+# The token reaches the keychain only through `claude plugin install --config`,
+# once per client, and no installer may go back to registering its own copy of
+# the remote MCP with `claude mcp add`.
+assert_token_handoff() {
+  python3 - "$1" <<'PYEOF'
+import sys
+commands = [part.decode() for part in open(sys.argv[1], 'rb').read().split(b'\0')[:-1]]
+config_arg = 'KB_WRITER_ACCESS_TOKEN=kbw_pat_test'
+
+calls = []
+for index, token in enumerate(commands):
+    if token == 'install':
+        calls.append(commands[index:index + 8])
+
+expected = [
+    ['install', 'kb-writer@kb-writer', '--scope', 'user', '--yes',
+     '--config', config_arg],
+    ['install', 'kb-writer@kb-writer', '--scope', 'user', '--yes', '--cowork',
+     '--config', config_arg],
+]
+assert [call[:len(want)] for call, want in zip(calls, expected)] == expected, calls
+assert 'mcp' not in commands, commands
+PYEOF
+}
+
+# Unrelated pre-existing configuration the installers must not disturb. They are
+# fresh-install paths, so nothing here stands in for an older KB Writer install.
+seed_home() {
+  local home="$1"
+  mkdir -p "$home/.codex" "$home/.claude"
+  cat > "$home/.codex/config.toml" <<'EOF'
+[mcp_servers.unrelated-server]
+url = "https://other.example/mcp"
+EOF
+  cat > "$home/.claude/settings.json" <<'EOF'
+{"mcpServers":{"unrelated-server":{"url":"https://other.example/mcp"}}}
+EOF
+}
+
+mkdir -p "$TEMP_HOME/bin"
 cat > "$TEMP_HOME/bin/claude" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\0' "$@" >> "$CLAUDE_COMMAND_LOG"
 EOF
 chmod +x "$TEMP_HOME/bin/claude"
-cat > "$TEMP_HOME/.codex/config.toml" <<'EOF'
-[mcp_servers.unrelated-server]
-url = "https://other.example/mcp"
-EOF
-cat > "$TEMP_HOME/.claude/settings.json" <<'EOF'
-{"mcpServers":{"unrelated-server":{"url":"https://other.example/mcp"},"kb-writer":{"url":"https://old.example/mcp"}}}
-EOF
+seed_home "$TEMP_HOME"
 
-for installer in \
-  "$ROOT_DIR/integrations/plugins/kb-writer/install/codex.sh" \
-  "$ROOT_DIR/integrations/install/codex.sh"; do
+for installer in "${CODEX_INSTALLERS[@]}"; do
   HOME="$TEMP_HOME" KB_WRITER_INSTALL_SKIP_PLUGIN=1 \
+    PATH="$TEMP_HOME/bin:$PATH" \
     KB_WRITER_API_BASE_URL='https://example.test/base/' \
     KB_WRITER_ACCESS_TOKEN='kbw_pat_test' bash "$installer" >/dev/null
 done
+assert_codex_configured "$TEMP_HOME"
 
-for installer in \
-  "$ROOT_DIR/integrations/plugins/kb-writer/install/claude.sh" \
-  "$ROOT_DIR/integrations/install/claude.sh"; do
-  installer_output=$(PATH="$TEMP_HOME/bin:$PATH" CLAUDE_COMMAND_LOG="$TEMP_HOME/claude-commands" HOME="$TEMP_HOME" KB_WRITER_INSTALL_SKIP_PLUGIN=1 \
+# Re-seed before each installer so the second one is not just inheriting the
+# state the first one left behind.
+for installer in "${CLAUDE_INSTALLERS[@]}"; do
+  seed_home "$TEMP_HOME"
+  : > "$TEMP_HOME/claude-commands"
+  installer_output=$(PATH="$TEMP_HOME/bin:$PATH" \
+    CLAUDE_COMMAND_LOG="$TEMP_HOME/claude-commands" HOME="$TEMP_HOME" \
+    KB_WRITER_INSTALL_SKIP_PLUGIN=1 \
     KB_WRITER_API_BASE_URL='https://example.test/base/' \
     KB_WRITER_ACCESS_TOKEN='kbw_pat_test' bash "$installer")
   [[ "$installer_output" != *'kbw_pat_test'* ]] || { echo "installer leaked token: $installer"; exit 1; }
+  assert_claude_configured "$TEMP_HOME"
+  assert_token_handoff "$TEMP_HOME/claude-commands"
 done
 
-assert_configured "$TEMP_HOME"
+# The desktop installer must also work with no claude CLI on PATH: everything
+# except the keychain write still has to happen, and it has to say why the token
+# was not stored.
+seed_home "$NO_TOKEN_HOME"
+no_cli_output=$(env -i PATH=/usr/bin:/bin HOME="$NO_TOKEN_HOME" \
+  KB_WRITER_INSTALL_SKIP_PLUGIN=1 \
+  KB_WRITER_API_BASE_URL='https://example.test/base/' \
+  KB_WRITER_ACCESS_TOKEN='kbw_pat_test' \
+  bash "$ROOT_DIR/integrations/install/claude.sh")
+[[ "$no_cli_output" != *'kbw_pat_test'* ]] || { echo 'no-CLI installer leaked token'; exit 1; }
+[[ "$no_cli_output" == *'claude CLI is not on PATH'* ]] || { echo 'no-CLI installer did not explain the missing keychain write'; exit 1; }
+assert_claude_configured "$NO_TOKEN_HOME"
 
-NO_TOKEN_HOME="$(mktemp -d)"
-trap 'rm -rf "$TEMP_HOME" "$NO_TOKEN_HOME"' EXIT
-mkdir -p "$NO_TOKEN_HOME/.codex" "$NO_TOKEN_HOME/.claude"
-printf '[mcp_servers.unrelated-server]\nurl = "https://other.example/mcp"\n' > "$NO_TOKEN_HOME/.codex/config.toml"
-printf '{"mcpServers":{"unrelated-server":{"url":"https://other.example/mcp"},"kb-writer":{"url":"https://old.example/mcp"}}}' > "$NO_TOKEN_HOME/.claude/settings.json"
-for installer in \
-  "$ROOT_DIR/integrations/plugins/kb-writer/install/claude.sh" \
-  "$ROOT_DIR/integrations/install/claude.sh"; do
-  HOME="$NO_TOKEN_HOME" KB_WRITER_INSTALL_SKIP_PLUGIN=1 bash "$installer" >/dev/null
-done
-python3 - "$NO_TOKEN_HOME/.codex/config.toml" "$NO_TOKEN_HOME/.claude/settings.json" <<'PYEOF'
+for installer in "${CLAUDE_INSTALLERS[@]}"; do
+  seed_home "$NO_TOKEN_HOME"
+  # `env -u` matters: a developer running this with KB_WRITER_ACCESS_TOKEN
+  # exported in their shell would otherwise exercise the token path here and
+  # hand their real token to the real CLI. The stub stays on PATH for the same
+  # reason.
+  : > "$NO_TOKEN_HOME/claude-commands"
+  env -u KB_WRITER_ACCESS_TOKEN -u KB_WRITER_API_BASE_URL \
+    PATH="$TEMP_HOME/bin:$PATH" \
+    CLAUDE_COMMAND_LOG="$NO_TOKEN_HOME/claude-commands" \
+    HOME="$NO_TOKEN_HOME" KB_WRITER_INSTALL_SKIP_PLUGIN=1 bash "$installer" >/dev/null
+  [ ! -s "$NO_TOKEN_HOME/claude-commands" ] || { echo "installer called claude without a token: $installer"; exit 1; }
+  python3 - "$NO_TOKEN_HOME/.codex/config.toml" \
+    "$NO_TOKEN_HOME/.claude/settings.json" \
+    "$NO_TOKEN_HOME/.claude/cowork_settings.json" <<'PYEOF'
 import json, sys
 assert '[mcp_servers.kb-writer]' not in open(sys.argv[1]).read()
-assert 'kb-writer' not in json.load(open(sys.argv[2])).get('mcpServers', {})
+for path in sys.argv[2:4]:
+    settings = json.load(open(path))
+    assert 'kb-writer' not in settings.get('mcpServers', {}), path
+    # Without a token the plugin is still registered and pointed at production;
+    # only the keychain write is deferred to /plugin configure.
+    assert settings['env'] == {
+        'KB_WRITER_API_BASE_URL': 'https://kb-companion.int.rclabenv.com'
+    }, path
+    assert settings['enabledPlugins']['kb-writer@kb-writer'] is True, path
 PYEOF
+done
 
 echo 'remote MCP installer configuration verified'

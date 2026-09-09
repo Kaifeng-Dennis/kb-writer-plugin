@@ -4,7 +4,7 @@
       "type": "http",
       "url": "${KB_WRITER_API_BASE_URL:-https://kb-companion.int.rclabenv.com}/mcp",
       "headers": {
-        "Authorization": "Bearer ${KB_WRITER_ACCESS_TOKEN}"
+        "Authorization": "Bearer ${user_config.KB_WRITER_ACCESS_TOKEN}"
       }
     }
   }
