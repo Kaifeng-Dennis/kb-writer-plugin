@@ -93,7 +93,37 @@ json.dump(settings, open(settings_path, 'w'), indent=2)
 PYEOF
 }
 
+# `claude plugin install --config` exits 0 even when it refuses the value: if the
+# installed manifest predates the userConfig declaration it just prints
+# "Installed, but --config not applied: ...". Discarding that output is how this
+# script used to report a keychain write that never happened, leaving Cowork with
+# a plugin whose ${user_config.KB_WRITER_ACCESS_TOKEN} never expands and thus no
+# kb-writer tools at all. So inspect the output, and scrub the token out of
+# anything quoted back.
+STORE_FAILURE=''
+store_token() {
+  local flag="$1" output status=0 reason
+  output="$(claude plugin install "$PLUGIN_ID" --scope user --yes ${flag} \
+    --config "KB_WRITER_ACCESS_TOKEN=${ACCESS_TOKEN}" 2>&1)" || status=$?
+
+  if [ "$status" -ne 0 ]; then
+    STORE_FAILURE="claude plugin install exited ${status}"
+    return 1
+  fi
+
+  case "$output" in
+    *'--config not applied'*)
+      reason="${output#*--config not applied: }"
+      STORE_FAILURE="${reason%%$'\n'*}"
+      STORE_FAILURE="${STORE_FAILURE//$ACCESS_TOKEN/<token>}"
+      return 1
+      ;;
+  esac
+  return 0
+}
+
 configured_clients=0
+failed_clients=0
 
 for target in "${TARGETS[@]}"; do
   IFS='|' read -r label settings_file flag <<< "$target"
@@ -124,15 +154,26 @@ for target in "${TARGETS[@]}"; do
   if [ -n "$ACCESS_TOKEN" ]; then
     # Re-running install against an already-installed plugin is how the CLI
     # applies --config without a prompt, so this doubles as token rotation.
-    # Output is dropped so a failing call cannot echo the token back.
-    claude plugin install "$PLUGIN_ID" --scope user --yes ${flag} \
-      --config "KB_WRITER_ACCESS_TOKEN=${ACCESS_TOKEN}" >/dev/null 2>&1
-    info "Stored the access token in the OS keychain for ${label}"
-    configured_clients=$((configured_clients + 1))
+    if store_token "$flag"; then
+      info "Stored the access token in the OS keychain for ${label}"
+      configured_clients=$((configured_clients + 1))
+    else
+      warn "Could not store the access token for ${label}: ${STORE_FAILURE}"
+      failed_clients=$((failed_clients + 1))
+    fi
   fi
 done
 
-if [ "$configured_clients" -eq 0 ]; then
+if [ "$failed_clients" -gt 0 ]; then
+  warn "KB Writer will have no tools in the client(s) above until the token is stored."
+  warn "Most likely the installed plugin predates the KB_WRITER_ACCESS_TOKEN userConfig"
+  warn "option, so the marketplace still serves an older manifest. Try:"
+  warn "  1) claude plugin marketplace update ${MARKETPLACE_NAME}   (add --cowork for Cowork)"
+  warn "  2) re-run this script, or run \`/plugin configure ${PLUGIN_ID}\` in Claude"
+  exit 1
+fi
+
+if [ -z "$ACCESS_TOKEN" ]; then
   warn "No KB_WRITER_ACCESS_TOKEN provided."
   warn "Get one from KB Writer (avatar menu -> Claude Plugin Setup -> Generate token), then either:"
   warn "  1) re-run: KB_WRITER_ACCESS_TOKEN=kbw_pat_xxx bash <this script>, or"

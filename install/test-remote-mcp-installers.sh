@@ -156,4 +156,33 @@ for path in sys.argv[2:4]:
 PYEOF
 done
 
+# `claude plugin install --config` prints "Installed, but --config not applied"
+# and exits 0 when the installed manifest has no such userConfig option -- which
+# is what a marketplace serving an older plugin version looks like. Swallowing
+# that made the installer claim a keychain write that never happened and leave
+# the client with zero kb-writer tools, so it must now fail loudly instead.
+REFUSED_HOME="$(mktemp -d)"
+trap 'rm -rf "$TEMP_HOME" "$NO_TOKEN_HOME" "$REFUSED_HOME"' EXIT
+seed_home "$REFUSED_HOME"
+mkdir -p "$REFUSED_HOME/bin"
+cat > "$REFUSED_HOME/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+echo '⚠ Installed, but --config not applied: --config was given but plugin "kb-writer@kb-writer" declares no userConfig options.'
+exit 0
+EOF
+chmod +x "$REFUSED_HOME/bin/claude"
+
+for installer in "${CLAUDE_INSTALLERS[@]}"; do
+  refused_status=0
+  refused_output=$(PATH="$REFUSED_HOME/bin:$PATH" HOME="$REFUSED_HOME" \
+    KB_WRITER_INSTALL_SKIP_PLUGIN=1 \
+    KB_WRITER_API_BASE_URL='https://example.test/base/' \
+    KB_WRITER_ACCESS_TOKEN='kbw_pat_test' bash "$installer" 2>&1) || refused_status=$?
+  [ "$refused_status" -ne 0 ] || { echo "installer reported success despite a refused --config: $installer"; exit 1; }
+  [[ "$refused_output" != *'Stored the access token'* ]] || { echo "installer falsely claimed a keychain write: $installer"; exit 1; }
+  [[ "$refused_output" == *'Could not store the access token'* ]] || { echo "installer did not report the failed --config: $installer"; exit 1; }
+  [[ "$refused_output" == *'declares no userConfig options'* ]] || { echo "installer dropped the CLI's reason: $installer"; exit 1; }
+  [[ "$refused_output" != *'kbw_pat_test'* ]] || { echo "installer leaked token on failure: $installer"; exit 1; }
+done
+
 echo 'remote MCP installer configuration verified'
