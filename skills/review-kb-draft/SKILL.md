@@ -29,8 +29,30 @@ Requires the configured `kb-writer` remote MCP server. MCP is required for state
 ## Inspect
 
 1. Call `get_article_tasks` to list work items.
-2. For items with a draft, call `get_draft` to show the draft content and title.
-3. Present the draft to the PM. Do not summarize or truncate the content; show it in full or provide a clear way to expand it.
+2. For the selected item with a draft, call `get_draft` to confirm its current title, version, and `workspaceUrl`.
+
+## Codex Workspace handoff
+
+When `open_in_codex` is available and `workspaceUrl` is present, open that
+existing Workspace in the current Codex task's right side panel.
+Do not construct a UI URL from `KB_WRITER_API_BASE_URL`: it is an API origin,
+which may differ from the frontend origin in local development.
+
+`workspaceUrl` is server-built from the selected task's persisted `articleId`
+and `workItemId`. Do not use the Draft title, image URLs, or the chat's current
+content as identity. Tell the PM to review and edit the Draft in that side
+panel, where the existing editor can render its images and retain image review
+notes. Keep the chat response to a concise review summary and the next action.
+
+## Claude fallback
+
+When `open_in_codex` is unavailable, present `workspaceUrl` as a regular
+Workspace link. If it is unavailable, present the full or expandable Draft so
+Claude users retain a usable review surface.
+
+When the PM returns after saving, call `get_article_tasks` and `get_draft`
+again before taking a review transition so the current persisted version remains
+the CAS token.
 
 ## Act
 

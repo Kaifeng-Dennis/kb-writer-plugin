@@ -53,6 +53,14 @@ if [ -z "$SKIP_PLUGIN_INSTALL" ]; then
 fi
 command -v python3 >/dev/null 2>&1 || { echo "python3 is required"; exit 1; }
 
+require_noninteractive_plugin_install() {
+  if ! claude plugin install --help 2>&1 | grep -Eq '(^|[^[:alnum:]-])--yes([^[:alnum:]-]|$)'; then
+    echo "Claude Code CLI support for 'claude plugin install --yes' is required."
+    echo "Upgrade Claude Code to 2.1.260 or newer, then re-run this installer."
+    exit 1
+  fi
+}
+
 marketplace_exists() {
   claude plugin marketplace list --json | python3 -c '
 import json, sys
@@ -127,6 +135,10 @@ info "Configuring Claude Code"
 if [ -n "$SKIP_PLUGIN_INSTALL" ]; then
   info "Skipping marketplace and plugin installation for configuration verification"
 else
+  # Piped installers cannot prompt. Check before marketplace mutation so an
+  # older CLI cannot leave a partial KB Writer installation behind.
+  require_noninteractive_plugin_install
+
   if marketplace_exists >/dev/null; then
     info "Refreshing KB Writer marketplace"
     claude plugin marketplace update "$MARKETPLACE_NAME"

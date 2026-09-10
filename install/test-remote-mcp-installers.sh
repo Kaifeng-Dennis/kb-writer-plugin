@@ -55,6 +55,24 @@ assert_no_cowork() {
   ! grep -qa -- '--cowork' "$command_log" || { echo 'installer passed --cowork to the CLI'; exit 1; }
 }
 
+# A piped installer cannot prompt for confirmation, but older Claude Code CLIs
+# reject --yes. The capability check must fail before marketplace, plugin, or
+# settings mutations, so a user is never left with a half-installed plugin.
+assert_unsupported_claude_stops_before_mutation() {
+  local home="$1" command_log="$2"
+  local output status=0
+  seed_home "$home"
+  cp "$home/.claude/settings.json" "$home/settings.before.json"
+  : > "$command_log"
+  output=$(PATH="$TEMP_HOME/unsupported-bin:$PATH" CLAUDE_COMMAND_LOG="$command_log" HOME="$home" \
+    KB_WRITER_ACCESS_TOKEN='kbw_pat_test' bash "$ROOT_DIR/integrations/plugins/kb-writer/install/claude.sh" 2>&1) || status=$?
+  [ "$status" -ne 0 ] || { echo 'unsupported Claude CLI installer unexpectedly succeeded'; exit 1; }
+  [[ "$output" == *'--yes'* ]] || { echo 'unsupported Claude CLI error did not mention --yes'; exit 1; }
+  cmp -s "$home/settings.before.json" "$home/.claude/settings.json" || { echo 'unsupported Claude CLI changed settings'; exit 1; }
+  ! grep -qa -- 'marketplace' "$command_log" || { echo 'unsupported Claude CLI mutated marketplace'; exit 1; }
+  ! grep -qa -- 'plugin install kb-writer@kb-writer' "$command_log" || { echo 'unsupported Claude CLI installed plugin'; exit 1; }
+}
+
 # The token is written to settings.json directly, so no installer may hand it to
 # `claude plugin install --config`: that command exits 0 and prints a success
 # line whether or not it stored anything, which is what used to leave clients
@@ -90,7 +108,20 @@ cat > "$TEMP_HOME/bin/claude" <<'EOF'
 printf '%s\0' "$@" >> "$CLAUDE_COMMAND_LOG"
 EOF
 chmod +x "$TEMP_HOME/bin/claude"
+mkdir -p "$TEMP_HOME/unsupported-bin"
+cat > "$TEMP_HOME/unsupported-bin/claude" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\0' "$@" >> "$CLAUDE_COMMAND_LOG"
+if [ "$1 $2 $3" = 'plugin install --help' ]; then
+  printf '%s\n' 'Usage: claude plugin install <plugin> [--scope <scope>]'
+fi
+EOF
+chmod +x "$TEMP_HOME/unsupported-bin/claude"
 seed_home "$TEMP_HOME"
+
+UNSUPPORTED_HOME="$(mktemp -d)"
+trap 'rm -rf "$TEMP_HOME" "$NO_TOKEN_HOME" "$UNSUPPORTED_HOME"' EXIT
+assert_unsupported_claude_stops_before_mutation "$UNSUPPORTED_HOME" "$UNSUPPORTED_HOME/claude-commands"
 
 for installer in "${CODEX_INSTALLERS[@]}"; do
   HOME="$TEMP_HOME" KB_WRITER_INSTALL_SKIP_PLUGIN=1 \
