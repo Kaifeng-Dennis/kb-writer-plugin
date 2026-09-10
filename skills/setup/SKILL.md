@@ -52,7 +52,9 @@ Do not offer to run the install script for a Cowork user.
 Check, reporting one line each:
 
 1. `KB_WRITER_API_BASE_URL` — set, or unset (will default to the production backend `https://kb-companion.int.rclabenv.com`).
-2. Whether the `kb-writer` MCP tools (e.g. `get_workspace`) appear in the MCP tool catalog. On Claude the token is not readable as an environment variable, so a missing tool catalog is the only signal that it is unset; on Codex, check `~/.codex/config.toml` directly.
+2. Whether the KB Writer MCP tools appear in the MCP tool catalog. **Match on the capability name as a substring — do not assume a prefix.** Search for a capability such as `get_workspace` or `list_my_workspaces` and accept any tool whose name ends in it. The namespace in front varies by how the server was registered: plugin-provided servers are namespaced per plugin and marketplace, a user-scope `claude mcp add` registration uses the bare server key, and the exact composition is not worth predicting. Report the full tool name you actually found rather than the one you expected. On Codex, check `~/.codex/config.toml` directly.
+
+   Not finding a tool is **not** proof the token is unset. It can equally mean the name was searched too narrowly, or that this client does not load plugin-scoped MCP servers at all. Before concluding anything, retry as a substring search, and state which query you ran when reporting the result. Never downgrade to raw HTTP on the strength of a name lookup that came up empty.
 3. Whether the base URL is reachable: `curl -s -o /dev/null -w "%{http_code}" --max-time 3 "$KB_WRITER_API_BASE_URL/v1/auth/login" -X POST` (any HTTP response means reachable; connection refused means the backend is down).
 4. Whether `mcp-atlassian-service` tools (e.g. `pm_toolkit_track`) appear in the MCP tool catalog.
 

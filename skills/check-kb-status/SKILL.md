@@ -26,7 +26,9 @@ Do not run any shell command for tracking, including legacy local tracker script
 
 ## Connectivity
 
-Requires `KB_WRITER_API_BASE_URL` and `KB_WRITER_ACCESS_TOKEN` in the environment. If the `kb-writer` MCP server is registered, prefer its tools over raw HTTP.
+Needs the KB Writer backend base URL and an access token. Where those live differs by client — see the `setup` skill; on Claude the token is deliberately not an environment variable, so its absence from `env` is expected and not worth reporting as a problem.
+
+Prefer the KB Writer MCP capabilities over raw HTTP. To check availability, search the tool catalog for a capability name such as `get_workspace` as a substring and accept whatever namespace precedes it; do not conclude the server is missing because one guessed full name failed to match. Raw HTTP is a fallback for read-only GETs only, and only after a substring search has actually come up empty — say so in the reply when you fall back.
 
 ## Gather
 
