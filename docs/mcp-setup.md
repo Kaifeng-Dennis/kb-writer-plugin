@@ -20,9 +20,16 @@ KB Writer 插件的 skill 运行时依赖两类 MCP server：
 | `KB_WRITER_ACCESS_TOKEN` | `~/.claude/settings.json` 的 `pluginConfigs["kb-writer@kb-writer"].options` | `.mcp.json` 以 `${user_config.KB_WRITER_ACCESS_TOKEN}` 读回，Claude 从这里解析。走 `/plugin configure` 手填会存进 OS keychain；installer 走 settings 文件（明文），因为 CLI 的 `--config` 实测不落盘 |
 | `KB_WRITER_API_BASE_URL` | `~/.claude/settings.json` 的 `env` | 非敏感；`.mcp.json` 内置生产地址兜底，只在指向 stage/本地时才需要设置 |
 
-### 支持范围：Claude Code 和 Codex
+### 支持范围：Claude Code、Codex 和 Claude Cowork Enterprise
 
-**Claude Cowork 不支持。** Cowork 桌面端的插件来自账号级（服务端）marketplace，不读 `~/.claude` 下的任何东西，所以 installer 写什么都到不了它；而且本地→远端的 marketplace 迁移是一次性的、sentinel 已打上，本地新加的 marketplace 也不会再同步上去。Cowork 用户只能在 app 里走 Customize → Plugins → **+** → Add marketplace，然后把 token 粘进 Cowork 自己的配置弹窗。另外 Cowork 没有任何入口设 `KB_WRITER_API_BASE_URL`，所以它只能连生产。
+Claude Code 和 Codex 继续使用本地插件与 PAT 配置。Claude Cowork Enterprise 使用**远程 Custom Web connector**，不读取 `~/.claude` 下的 token 配置，也不需要管理员在 Claude 中填 Client ID 或 Client Secret：KB Writer 的远程 MCP 通过 OAuth metadata 宣告 DCR（dynamic client registration）和 PKCE。
+
+### Claude Cowork Enterprise：远程 OAuth connector
+
+1. 部署管理员启用 `RINGCENTRAL_OAUTH_ENABLED=true`，从已注册 RingCentral 应用的 PROD/STAGE/LOCAL 回调值中选择当前环境的一个，作为 `RINGCENTRAL_OAUTH_REDIRECT_URI`；不得复制 ACE 或其他应用的值。
+2. 为 KB Writer 配置一个公开 HTTPS Ingress。该 host 必须与选中的回调 URL 完全同源，并把 `/mcp`、`/mcp/oauth/`、`/oauth2/callback` 和 `/.well-known/` 都路由到 KB Writer；backend Service 仍保持 `ClusterIP`。
+3. Enterprise Owner 在 Claude 的 Custom Web connector 中填写 canonical `https://<kb-writer-host>/mcp`。保持 OAuth Client ID/Secret 为空，让 Claude 通过 DCR 注册；每位用户在 Connect 时完成一次 RingCentral 登录。
+4. Connect 后调用一个只读工具验证连接。若无 token，`/mcp` 返回 `401` 和 OAuth discovery header；不要在 Claude、Ingress 或日志中粘贴 RingCentral secret、授权码或 MCP bearer token。
 
 ### 一键安装（推荐）
 
@@ -139,7 +146,7 @@ Settings → MCP servers，添加同样的 URL 与 headers（参考 pm-toolkit R
 | tracking 有数据但 username=unknown | `jira-read-token` 失效或 `/myself` 不可达 | 重新申请 token |
 | 未发现 `kb-writer` MCP 工具 | 安装后客户端未刷新，或安装时没有 PAT | 用 PAT 重新运行 installer，并打开新线程/重启客户端 |
 | 报 `KB_WRITER_ACCESS_TOKEN isn't set` | `userConfig` 没填 | `/plugin configure kb-writer@kb-writer`，或带 PAT 重跑 installer |
-| Cowork 里没有 KB Writer | Cowork 不支持，见上面「支持范围」 | 在 Cowork app 里手动 Add marketplace + 粘 token，且只能连生产 |
+| Cowork 连接失败 | Custom Web connector 的公开 URL、TLS、callback origin 或 RingCentral OAuth 配置不一致 | 用上面「Claude Cowork Enterprise：远程 OAuth connector」逐项核对；不要改用 PAT 或复制其他应用凭据 |
 | 同一批工具出现两遍 | 除插件自带的 `.mcp.json` 外还手工注册过 `kb-writer` | 删掉 settings 里的 `mcpServers.kb-writer` |
 | token 轮换后仍是旧的 | `pluginConfigs` 已更新，但 `~/.claude.json` 里还留着旧版 user-scope 注册，优先级更高 | `claude mcp remove kb-writer --scope user`（见上面「从旧版本升级」） |
 | 明明配了 stage 却打到生产 | 只填了 token，没配 `KB_WRITER_API_BASE_URL` | 按上面「手动填 token」把 base URL 写进 `~/.claude/settings.json` |
