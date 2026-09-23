@@ -1,3 +1,4 @@
+import { KB_WRITER_MCP_VERSION } from "./version.js";
 export const APPROVED_CAPABILITY_NAMES = [
     'list_my_workspaces',
     'promote_ticket',
@@ -50,6 +51,9 @@ export class KbWriterBackendError extends Error {
     }
 }
 export class KbWriterClient {
+    updateAvailable = null;
+    updateDownloadUrl = null;
+    updatePluginUrl = null;
     baseUrl;
     accessToken;
     fetchImpl;
@@ -70,6 +74,7 @@ export class KbWriterClient {
         const headers = {
             Authorization: `Bearer ${this.accessToken}`,
             Accept: 'application/json',
+            'X-KB-Writer-Client-Version': KB_WRITER_MCP_VERSION,
         };
         const init = { method: spec.method, headers };
         if (spec.body !== undefined) {
@@ -80,6 +85,23 @@ export class KbWriterClient {
             headers['Idempotency-Key'] = String(spec.idempotencyKey);
         }
         const response = await this.fetchImpl(url, init);
+        // The skills and this server update through separate channels, so the
+        // backend tells us when the installed extension is behind the one it
+        // ships. Record it even on a failed call: a stale client is a likely
+        // cause of the failure.
+        // The value is spliced into prose the model reads, so accept only a plain
+        // dotted version. Anything else is not a version, and whatever set the
+        // header does not get to put arbitrary text in a tool result.
+        const announced = response.headers.get('x-kb-writer-client-outdated')?.trim();
+        this.updateAvailable = announced && /^\d+(\.\d+){0,3}$/.test(announced) ? announced : null;
+        // Built from the configured backend, never from the response, so the
+        // link in a tool result is one the user already trusts.
+        this.updateDownloadUrl = this.updateAvailable
+            ? `${this.baseUrl}/v1/plugin-downloads/kb-writer-mcp.mcpb`
+            : null;
+        this.updatePluginUrl = this.updateAvailable
+            ? `${this.baseUrl}/v1/plugin-downloads/kb-writer-plugin.zip`
+            : null;
         if (!response.ok)
             throw await backendError(response);
         if (response.status === 204)

@@ -20,16 +20,68 @@ KB Writer 插件的 skill 运行时依赖两类 MCP server：
 | `KB_WRITER_ACCESS_TOKEN` | `~/.claude/settings.json` 的 `pluginConfigs["kb-writer@kb-writer"].options` | `.mcp.json` 以 `${user_config.KB_WRITER_ACCESS_TOKEN}` 读回，Claude 从这里解析。走 `/plugin configure` 手填会存进 OS keychain；installer 走 settings 文件（明文），因为 CLI 的 `--config` 实测不落盘 |
 | `KB_WRITER_API_BASE_URL` | `~/.claude/settings.json` 的 `env` | 非敏感；`.mcp.json` 内置生产地址兜底，只在指向 stage/本地时才需要设置 |
 
-### 支持范围：Claude Code、Codex 和 Claude Cowork Enterprise
+### 支持范围：Claude Code、Codex 和 Claude Cowork
 
-Claude Code 和 Codex 继续使用本地插件与 PAT 配置。Claude Cowork Enterprise 使用**远程 Custom Web connector**，不读取 `~/.claude` 下的 token 配置，也不需要管理员在 Claude 中填 Client ID 或 Client Secret：KB Writer 的远程 MCP 通过 OAuth metadata 宣告 DCR（dynamic client registration）和 PKCE。
+Claude Code 和 Codex 使用本地插件与 PAT 配置，`.mcp.json` 里的 remote MCP 条目直接生效。**Cowork 不走这条路**，需要分两次安装，见下。
 
-### Claude Cowork Enterprise：远程 OAuth connector
+### Claude Cowork：插件装 skills，桌面扩展装工具
 
-1. 部署管理员启用 `RINGCENTRAL_OAUTH_ENABLED=true`，从已注册 RingCentral 应用的 PROD/STAGE/LOCAL 回调值中选择当前环境的一个，作为 `RINGCENTRAL_OAUTH_REDIRECT_URI`；不得复制 ACE 或其他应用的值。
-2. 为 KB Writer 配置一个公开 HTTPS Ingress。该 host 必须与选中的回调 URL 完全同源，并把 `/mcp`、`/mcp/oauth/`、`/oauth2/callback` 和 `/.well-known/` 都路由到 KB Writer；backend Service 仍保持 `ClusterIP`。
-3. Enterprise Owner 在 Claude 的 Custom Web connector 中填写 canonical `https://<kb-writer-host>/mcp`。保持 OAuth Client ID/Secret 为空，让 Claude 通过 DCR 注册；每位用户在 Connect 时完成一次 RingCentral 登录。
-4. Connect 后调用一个只读工具验证连接。若无 token，`/mcp` 返回 `401` 和 OAuth discovery header；不要在 Claude、Ingress 或日志中粘贴 RingCentral secret、授权码或 MCP bearer token。
+Cowork 从账号级（服务端）marketplace 解析插件，不读 `~/.claude` 下的任何配置，**也不会启动插件 `.mcp.json` 里声明的 server**。只装插件的结果是 skills 可以触发但一个 MCP 工具都没有，而所有写操作 skill 都带 MCP 守卫，会在第一步就停下。所以两样都要装：
+
+**1. Skills —— 装插件**
+
+Customize → Plugins → **+** → Add marketplace，填 `https://github.com/Kaifeng-Dennis/kb-writer-plugin`，然后安装 kb-writer。这里如果要求填 token，填什么都行：插件的 `.mcp.json` 在 Cowork 里是死的，这个 token 不会被用到。
+
+> **不想加 marketplace？** 也可以从 KB Writer 网页版头像菜单 → **Claude Plugin Setup** → Claude Cowork 页签下载插件文件，走 Plugins → **Add → Upload plugin** 上传。内容和 marketplace 版本同源（都出自 git 跟踪的文件），区别只是不会自动更新。注意上传对话框只认 `.zip` 扩展名。
+
+**2. 工具 —— 装桌面扩展**
+
+从 KB Writer 网页版头像菜单 → **Claude Plugin Setup** → Claude Cowork 页签下载 `kb-writer-mcp.mcpb`（后端直接提供，不经 GitHub），在桌面 App 里 Settings → Extensions → Advanced settings → **Extension Developer** 安装。安装时填两项：
+
+| 字段 | 填什么 |
+|---|---|
+| KB Writer access token | 头像菜单 → Claude Plugin Setup 生成的 `kbw_pat_...` |
+| KB Writer backend URL | **保持默认，不要清空**。server 用的是 `process.env.X ?? default`，空字符串不是 nullish，会被当成请求地址，结果是所有调用都失败 |
+
+两个文件同样发布在插件镜像的 `install/` 目录下，脚本化场景可以直接取；界面上的按钮走后端 `/v1/plugin-downloads/`，因为同源才能直接触发下载而不是打开新标签页。
+
+装完**必须新开一个 Cowork 会话**，MCP 工具目录只在会话启动时刷新。
+
+> 别试图把 stdio server 直接写进插件的 `.mcp.json` 来省掉这一步：Cowork 会以 `not_started (user_config_unsupported)` 跳过任何引用 `${user_config.<key>}` 的条目，而 token 只能从那里来。独立的 `.mcpb` 扩展不受这个限制，这正是要分两步装的原因。
+
+扩展里的服务跑在 PM 自己的机器上，所以需要 VPN / 公司网络才能访问后端。base URL 是扩展自己的配置项，所以指向 stage 是可以的——但必须和签发 token 的后端一致，否则认证不过。
+
+这也划定了适用范围：**这套装法针对桌面 App 里的 Cowork**（已实测可用）。扩展是装在设备上的，进程也起在设备上，因此后端只要在该设备可达就行。换成在云端运行的 Cowork 会话则不适用——那里既没有这个设备扩展，直连 `kb-companion.int.rclabenv.com` 也会被出网策略挡掉。云端场景要等公开 Ingress，见下一节。
+
+> 扩展的工具带的是它自己的命名空间前缀（`mcp__KB_Writer_MCP__*`），和插件那套 `kb-writer` 不同。skills 按能力名做子串匹配而不是硬编码全名，所以不受影响——改动 skills 时别把这个特性写没了。
+
+### 更新：skills 自动，扩展要手动
+
+三条通道的更新方式不同，这是分两步安装的代价：
+
+| 通道 | 怎么更新 |
+|---|---|
+| 插件（marketplace） | `plugin.json` 的 `version` 一变，客户端自动重新同步 |
+| 插件（上传 zip） | 重新下载、重新上传 |
+| `.mcpb` 扩展 | 重新下载、重新安装 |
+
+风险在于 **skills 会自己往前走，扩展不会**。新 skill 调用老扩展没有的工具时，skills 按自己的规则会判定「MCP 不可用」并让 PM 去重连——这个提示是错的，照做也没用。
+
+为此加了两层提示：
+
+0. **下载下来的文件名带版本号**（`kb-writer-mcp-<版本>.mcpb`）。服务端路径保持不带版本，否则每次发版都要改文档和界面里的链接；版本只出现在保存到本地的文件名里，这样 Downloads 里堆了几份也分得清，被要求重装时也能看出手上这份是不是。
+1. **对话框显示版本号**。Claude Plugin Setup → Claude Cowork 页签的标题旁标着后端当前发布的版本，桌面 App 的扩展列表里能看到已装版本，对一下就知道要不要重装。
+2. **后端主动告知过期**。MCP server 每次调用都带 `X-KB-Writer-Client-Version`；后端发现比自己发布的版本旧，就回一个 `X-KB-Writer-Client-Outdated`，server 把它变成工具结果里的一条提示，模型会直接告诉 PM 去重装扩展。
+
+版本号只有一个来源：`.claude-plugin/plugin.json`。构建时分别生成 `mcp-server/version.ts`（编译进 server）和 `backend/.../plugin-downloads/version.txt`（后端读），CI 校验三者一致。
+
+非纯数字的版本号（本地构建、RC）不会被判过期，避免拿自己构建的开发版的人被反复催着去装发布版。
+
+### 远程 OAuth connector（暂不可用）
+
+长期方向仍是让 Cowork 直接连远程 MCP，省掉本地扩展：为 KB Writer 配置公开 HTTPS Ingress，由 Enterprise Owner 在 Custom Web connector 里填 canonical `https://<kb-writer-host>/mcp`，通过 OAuth metadata 宣告 DCR 和 PKCE，Client ID/Secret 留空。
+
+**当前不具备条件**：后端只有内网地址（`kb-companion.int.rclabenv.com` 解析到 `100.64.1.13`），公开 Ingress 尚未落地，`/mcp` 与 `/.well-known/` 也还没路由到 KB Writer。在那之前，Cowork 用户一律走上面的桌面扩展路径。
 
 ### 一键安装（推荐）
 
@@ -146,7 +198,11 @@ Settings → MCP servers，添加同样的 URL 与 headers（参考 pm-toolkit R
 | tracking 有数据但 username=unknown | `jira-read-token` 失效或 `/myself` 不可达 | 重新申请 token |
 | 未发现 `kb-writer` MCP 工具 | 安装后客户端未刷新，或安装时没有 PAT | 用 PAT 重新运行 installer，并打开新线程/重启客户端 |
 | 报 `KB_WRITER_ACCESS_TOKEN isn't set` | `userConfig` 没填 | `/plugin configure kb-writer@kb-writer`，或带 PAT 重跑 installer |
-| Cowork 连接失败 | Custom Web connector 的公开 URL、TLS、callback origin 或 RingCentral OAuth 配置不一致 | 用上面「Claude Cowork Enterprise：远程 OAuth connector」逐项核对；不要改用 PAT 或复制其他应用凭据 |
-| 同一批工具出现两遍 | 除插件自带的 `.mcp.json` 外还手工注册过 `kb-writer` | 删掉 settings 里的 `mcpServers.kb-writer` |
+| Cowork 里 skills 能触发但一个 MCP 工具都没有 | 只装了插件，没装桌面扩展；插件的 `.mcp.json` 在 Cowork 里不生效 | 按「Claude Cowork」一节装 `kb-writer-mcp.mcpb`，然后新开会话 |
+| Cowork 装了扩展仍然没有工具 | 会话未刷新，或扩展启动失败 | 先新开会话；仍然没有就看扩展的错误信息，重点确认桌面 App 能否找到 `node` |
+| 扩展状态是 `not_started (user_config_unsupported)` | 该条目引用了 `${user_config.*}` 而当前环境不提供 | 确认装的是独立 `.mcpb` 扩展，不是插件 `.mcp.json` 里的 local 条目；重装一次扩展 |
+| 工具结果里出现「extension … is available」提示 | 已装扩展落后于后端发布版本 | 按「Claude Cowork」一节重新下载并安装 `.mcpb`，然后新开会话 |
+| Cowork 里工具能看到但调用全失败 | 扩展跑在本机，连不到内网后端，或 backend URL 被清空 | 确认 VPN / 公司网络；检查扩展配置里的 backend URL 不是空值 |
+| 同一批工具出现两遍 | 除插件自带的 `.mcp.json` 外还手工注册过 `kb-writer`，或在 Claude Code 里同时装了桌面扩展 | 删掉 settings 里的 `mcpServers.kb-writer`；桌面扩展只在 Cowork 需要，Claude Code 用户不要装 |
 | token 轮换后仍是旧的 | `pluginConfigs` 已更新，但 `~/.claude.json` 里还留着旧版 user-scope 注册，优先级更高 | `claude mcp remove kb-writer --scope user`（见上面「从旧版本升级」） |
 | 明明配了 stage 却打到生产 | 只填了 token，没配 `KB_WRITER_API_BASE_URL` | 按上面「手动填 token」把 base URL 写进 `~/.claude/settings.json` |

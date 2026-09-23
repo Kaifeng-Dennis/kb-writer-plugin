@@ -2,6 +2,7 @@
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { APPROVED_CAPABILITY_NAMES, KbWriterBackendError, KbWriterClient, } from "./kb-writer-client.js";
+import { KB_WRITER_MCP_VERSION } from "./version.js";
 const INTEGER_ARGUMENTS = new Set([
     'workspace_id', 'planning_job_id', 'draft_id', 'failed_planning_job_id',
     'expected_workspace_version', 'expected_manifest_id', 'preview_job_id',
@@ -116,7 +117,7 @@ export function createMcpRequestHandler(client) {
                     result: {
                         protocolVersion: typeof requestedVersion === 'string' ? requestedVersion : '2025-06-18',
                         capabilities: { tools: {} },
-                        serverInfo: { name: 'kb-writer-mcp', version: '0.1.0' },
+                        serverInfo: { name: 'kb-writer-mcp', version: KB_WRITER_MCP_VERSION },
                     },
                 };
             }
@@ -140,14 +141,24 @@ export function createMcpRequestHandler(client) {
                 }
                 catch (error) {
                     if (error instanceof KbWriterBackendError && isExpectedWorkflowFailure(error)) {
-                        return workflowFailure(error);
+                        return workflowFailure(error, client.updateAvailable ?? null, client.updateDownloadUrl ?? null, client.updatePluginUrl ?? null);
                     }
                     throw error;
                 }
                 const structuredContent = isObject(result) ? { structuredContent: result } : {};
+                const content = [{ type: 'text', text: JSON.stringify(result) }];
+                // The extension installs outside the plugin, so nothing updates it on
+                // the user's behalf and a stale one fails by missing tools the newer
+                // skills call for. Say so in the result the model already reads.
+                if (client.updateAvailable) {
+                    content.push({
+                        type: 'text',
+                        text: updateNotice(client.updateAvailable, client.updateDownloadUrl ?? null, client.updatePluginUrl ?? null),
+                    });
+                }
                 return {
                     result: {
-                        content: [{ type: 'text', text: JSON.stringify(result) }],
+                        content,
                         ...structuredContent,
                     },
                 };
@@ -157,15 +168,41 @@ export function createMcpRequestHandler(client) {
         }
     };
 }
-function workflowFailure(error) {
+function updateNotice(availableVersion, downloadUrl, pluginUrl) {
+    // Carries the links rather than directions to them: the alternative is four
+    // menus deep in another app, which nobody follows mid-task. Markdown, so a
+    // relayed notice reads as two short names instead of two long URLs, and the
+    // file name is the one to check against what actually downloads.
+    const head = `KB Writer extension update: ${KB_WRITER_MCP_VERSION} installed, ` +
+        `${availableVersion} available.`;
+    if (!downloadUrl)
+        return `${head} Run /kb-writer:setup.`;
+    // Nothing here knows how the plugin itself was installed. One added from the
+    // marketplace updates itself, so pointing every reader at the archive would
+    // send most of them to redo something already done.
+    const plugin = pluginUrl
+        ? ` If the plugin was uploaded as a file rather than added from the marketplace, replace it from [kb-writer-plugin.zip](${pluginUrl}) too.`
+        : '';
+    return (`${head} Reinstall the extension from [kb-writer-mcp.mcpb](${downloadUrl}).` +
+        `${plugin} /kb-writer:setup has the steps.`);
+}
+
+function workflowFailure(error, updateAvailable, updateDownloadUrl, updatePluginUrl) {
     const backend = isObject(error.details) ? error.details : {};
     const code = typeof backend.code === 'string' ? backend.code : `HTTP_${error.status}`;
     const message = typeof backend.message === 'string' ? backend.message : error.message;
     const nextAction = workflowNextAction(code, error.status);
     const structuredContent = { code, message, next_action: nextAction };
+    const content = [{ type: 'text', text: JSON.stringify(structuredContent) }];
+    // A stale extension calling a capability the backend has since changed is
+    // one of the likelier reasons to be here, so this is exactly when the
+    // reader needs to know an update exists.
+    if (updateAvailable) {
+        content.push({ type: 'text', text: updateNotice(updateAvailable, updateDownloadUrl, updatePluginUrl) });
+    }
     return {
         result: {
-            content: [{ type: 'text', text: JSON.stringify(structuredContent) }],
+            content,
             structuredContent,
             isError: true,
         },

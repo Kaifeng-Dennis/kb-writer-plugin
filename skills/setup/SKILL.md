@@ -1,11 +1,18 @@
 ---
 name: setup
-description: First-time setup for the KB Writer plugin. Use when the PM installs the plugin, hits a missing KB_WRITER_ACCESS_TOKEN error, or asks to configure/sign in to KB Writer.
+description: Set up or update the KB Writer plugin. Use when the PM installs the plugin, hits a missing KB_WRITER_ACCESS_TOKEN error, asks to configure or sign in to KB Writer, or is told an extension update is available.
 ---
 
 # KB Writer setup
 
-Interactive first-time configuration. Goal: get the PM from "just installed" to "skills work" in one pass. Idempotent — safe to re-run; skip steps that are already done.
+Interactive configuration, for a first install or an update. Goal: get the PM
+from "just installed" to "skills work" in one pass. Idempotent — safe to
+re-run; skip steps that are already done.
+
+**Arriving from an update notice?** Go straight to "Updating an existing
+install" below. Steps 1 to 4 configure a fresh install; on an update the token
+and backend URL are already set, so only revisit them if something is actually
+missing.
 
 ## Usage tracking preflight
 
@@ -38,14 +45,62 @@ this first and follow only that client's branch for the rest of the skill:
 
 If it is not obvious, ask the PM which app they are in rather than guessing.
 
-**Claude Cowork is not supported.** Its desktop app resolves plugins from the
-account-level (server-side) marketplace and reads nothing under `~/.claude`, so
-the install script cannot reach it. If the PM is in Cowork, tell them to add
-`https://github.com/Kaifeng-Dennis/kb-writer-plugin` through Customize →
-Plugins → **+** → Add marketplace, install kb-writer there, and paste the token
-into Cowork's own prompt. Cowork has no way to set `KB_WRITER_API_BASE_URL`, so
-it can only reach production — a stage or localhost token will not authenticate.
-Do not offer to run the install script for a Cowork user.
+**Claude Cowork installs in two parts.** Its desktop app resolves plugins from
+the account-level (server-side) marketplace and reads nothing under `~/.claude`,
+so the install script cannot reach it — never offer to run the install script
+for a Cowork user. Cowork also never starts the server declared in the plugin's
+own `.mcp.json`, so installing the plugin alone yields the skills and zero
+tools, and every state-changing skill then stops at its own MCP guard. Walk the
+PM through both parts:
+
+1. **Skills** — add `https://github.com/Kaifeng-Dennis/kb-writer-plugin` through
+   Customize → Plugins → **+** → Add marketplace, then install kb-writer. If it
+   prompts for a token here, any value will do; the plugin's `.mcp.json` is
+   inert in Cowork and this token is never used. A PM who cannot or will not add
+   the marketplace can instead download `install/kb-writer-plugin.zip` from that
+   repository and use Plugins → **Add → Upload plugin**; the contents are the
+   same, it just stops updating on its own. The upload dialog rejects any
+   extension other than `.zip`.
+2. **Tools** — download `install/kb-writer-mcp.mcpb` from that same repository
+   and install it through Settings → Extensions → Advanced settings →
+   Extension Developer. It asks for the access token and the backend URL. Tell
+   the PM to leave the backend URL at its default: the server uses an empty
+   value verbatim, so clearing that field breaks every request.
+
+Both parts are required, and the second cannot be folded into the first:
+Cowork skips any `.mcp.json` entry that references `${user_config.<key>}` and
+reports `not_started (user_config_unsupported)`, which is the only place the
+token could come from. A standalone `.mcpb` extension is not subject to that
+limit. The extension names its tools under its own prefix rather than the
+plugin's, so keep matching capability names as substrings (see Step 1). MCP tools only
+refresh when a session starts, so the PM has to open a new Cowork session
+before either part is visible. The extension runs on the PM's own machine, so
+it needs VPN or corporate network access to the backend. Its backend URL is one
+of its own config fields, so a stage install is possible, but the URL has to
+match the backend that issued the token or it will not authenticate.
+
+## Updating an existing install
+
+A tool result saying a newer extension is available means the Cowork install is
+behind. Updating is reinstalling, so run the two parts above again rather than
+looking for an update command — nothing updates the extension on its own, and
+the uploaded-archive form of the plugin does not update either.
+
+Two things make this go wrong if skipped:
+
+- **Remove the installed extension first.** Two copies both register their
+  tools, so every capability appears twice and neither the PM nor Claude can
+  tell which one answered.
+- **Take the new file from the dialog, not from a previous download.** The
+  saved file carries its version in the name, so check that what you are about
+  to install is the version the notice named.
+
+Two things this skill cannot do, so say them rather than implying otherwise:
+installing and removing a desktop extension happens in Claude Desktop's own UI
+and the PM has to do it, and the result cannot be checked from here, because an
+extension is only loaded when a session starts. Finish by telling the PM to open
+a new session and call any read-only tool; the notice is gone once the installed
+version matches what the backend ships.
 
 ## Step 1 — Detect current state
 
