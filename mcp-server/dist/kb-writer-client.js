@@ -6,6 +6,7 @@ export const APPROVED_CAPABILITY_NAMES = [
     'get_workspace',
     'get_planning_status',
     'get_generation_manifest',
+    'get_related_article_suggestions',
     'discover_article_targets',
     'get_article_target',
     'get_article_tasks',
@@ -16,6 +17,7 @@ export const APPROVED_CAPABILITY_NAMES = [
     'retry_intent_planning',
     'revise_intent_input',
     'resolve_article_target',
+    'add_related_article_suggestion',
     'add_workspace_evidence',
     'remove_manifest_source',
     'replace_manifest_source',
@@ -145,6 +147,8 @@ function requestSpec(name, args) {
             };
         case 'get_generation_manifest':
             return { method: 'GET', path: `${workspacePath()}/manifest` };
+        case 'get_related_article_suggestions':
+            return { method: 'GET', path: `${workspacePath()}/related-article-suggestions` };
         case 'discover_article_targets':
             return {
                 method: 'GET',
@@ -189,6 +193,8 @@ function requestSpec(name, args) {
             return post(`${workspacePath()}/targets/resolve`, {
                 reference: required(args, 'reference'),
             }, idempotencyKey());
+        case 'add_related_article_suggestion':
+            return post(`${workspacePath()}/related-article-suggestions/${segment(required(args, 'suggestion_key'))}/add`, { expectedManifestId: required(args, 'expected_manifest_id') }, idempotencyKey());
         case 'add_workspace_evidence':
             return post(`${workspacePath()}/manifest/evidence`, {
                 expectedManifestId: required(args, 'expected_manifest_id'),

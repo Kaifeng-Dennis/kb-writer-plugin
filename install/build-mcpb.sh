@@ -14,8 +14,7 @@ repo_root="$(git -C "$plugin_dir" rev-parse --show-toplevel)"
 out="${plugin_dir}/install/kb-writer-mcp.mcpb"
 # The backend serves this file to Cowork users, but its Docker build
 # context is backend/ alone, so it cannot read the plugin directory at
-# image build time. The copy has to be committed, and it is written here
-# rather than by hand so the two can never drift apart.
+# image build time. CI writes the generated copy before building that image.
 backend_copy="${repo_root}/backend/src/main/resources/plugin-downloads/kb-writer-mcp.mcpb"
 
 version="$(python3 -c '

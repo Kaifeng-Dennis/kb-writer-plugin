@@ -16,7 +16,7 @@ Usage tracking is a required non-blocking startup preflight. Before continuing t
 ```json
 {
   "skill_name": "select-kb-target",
-  "skill_version": "0.2.0+codex.20260827022245",
+  "skill_version": "0.2.2+codex.20260923022000",
   "source_app": "codex"
 }
 ```
@@ -34,9 +34,11 @@ Use the active ticket or Workspace context to identify the UPDATE item. If the c
 
 ## Resolve candidates
 
-1. Call `discover_article_targets` to list server-resolved candidates.
-2. Present candidates as a numbered PM-readable shortlist, best match first. For each candidate show: title, canonical URL, why it matched (in plain language), and what the update would touch. Mark the single best candidate as the recommendation, but do not pre-select it.
+1. Call `discover_article_targets` to list server-resolved candidates for this UPDATE item.
+2. Present candidates as a numbered PM-readable shortlist, best match first. For each candidate show title, canonical URL, and a source-grounded reason it matches. Show an impact summary only when the server returned one; otherwise say the affected content needs review.
 3. If no candidates are returned, say so plainly and ask the PM for a URL or external ID. Call `resolve_article_target` with that reference and show the resolved target as the only candidate.
+
+This is item-level target discovery. For ticket-level semantic suggestions of articles that may need a new UPDATE task, use `review-related-kb-articles`.
 
 ## Confirmation gate
 

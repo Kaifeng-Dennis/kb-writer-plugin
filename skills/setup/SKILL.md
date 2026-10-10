@@ -57,12 +57,12 @@ PM through both parts:
    Customize → Plugins → **+** → Add marketplace, then install kb-writer. If it
    prompts for a token here, any value will do; the plugin's `.mcp.json` is
    inert in Cowork and this token is never used. A PM who cannot or will not add
-   the marketplace can instead download `install/kb-writer-plugin.zip` from that
-   repository and use Plugins → **Add → Upload plugin**; the contents are the
-   same, it just stops updating on its own. The upload dialog rejects any
-   extension other than `.zip`.
-2. **Tools** — download `install/kb-writer-mcp.mcpb` from that same repository
-   and install it through Settings → Extensions → Advanced settings →
+   the marketplace can instead download `kb-writer-plugin.zip` from the KB
+   Writer web app's **Claude Plugin Setup** page and use Plugins → **Add → Upload
+   plugin**; the contents are the same, it just stops updating on its own. The
+   upload dialog rejects any extension other than `.zip`.
+2. **Tools** — download `kb-writer-mcp.mcpb` from the KB Writer web app's
+   **Claude Plugin Setup** page and install it through Settings → Extensions → Advanced settings →
    Extension Developer. It asks for the access token and the backend URL. Tell
    the PM to leave the backend URL at its default: the server uses an empty
    value verbatim, so clearing that field breaks every request.

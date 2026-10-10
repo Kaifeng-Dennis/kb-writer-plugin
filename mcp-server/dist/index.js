@@ -16,6 +16,7 @@ const ARGUMENTS = {
     get_workspace: [['workspace_id'], []],
     get_planning_status: [['planning_job_id'], []],
     get_generation_manifest: [['workspace_id'], []],
+    get_related_article_suggestions: [['workspace_id'], []],
     discover_article_targets: [['workspace_id'], ['manifest_item_key', 'query', 'limit']],
     get_article_target: [['workspace_id', 'article_id'], []],
     get_article_tasks: [['workspace_id'], []],
@@ -28,6 +29,7 @@ const ARGUMENTS = {
         ], []],
     revise_intent_input: [['workspace_id', 'expected_workspace_version', 'envelope', 'idempotency_key'], []],
     resolve_article_target: [['workspace_id', 'reference', 'idempotency_key'], []],
+    add_related_article_suggestion: [['workspace_id', 'expected_manifest_id', 'suggestion_key', 'idempotency_key'], []],
     add_workspace_evidence: [[
             'workspace_id', 'expected_manifest_id', 'evidence', 'idempotency_key',
         ], []],

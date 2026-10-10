@@ -6,10 +6,9 @@
 # The upload dialog only accepts a .zip extension; a .plugin file is rejected
 # even though the file picker offers it.
 #
-# Contents come from git's tracked file list, so the upload and the marketplace
-# install carry exactly the same plugin. The archive excludes itself: a zip that
-# contained the previous build of itself would never reproduce, and the CI drift
-# check would fail forever.
+# Contents come from the source tree, including newly added non-ignored plugin
+# files. The archive excludes itself: a zip that contained the previous build
+# of itself would never reproduce.
 set -euo pipefail
 
 plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -21,14 +20,14 @@ print(os.path.relpath(sys.argv[1], sys.argv[2]))
 out="${plugin_dir}/install/kb-writer-plugin.zip"
 self="install/kb-writer-plugin.zip"
 # Mirrored into the backend for the same reason as the .mcpb: the image
-# build cannot see this directory, so the served copy must be committed.
+# build cannot see this directory, so CI writes the served copy before build.
 backend_copy="${repo_root}/backend/src/main/resources/plugin-downloads/kb-writer-plugin.zip"
 
 # macOS ships bash 3.2, which has no mapfile.
 tracked=()
 while IFS= read -r entry; do
   tracked+=("$entry")
-done < <(git -C "$repo_root" ls-files -- "$prefix" \
+done < <(git -C "$repo_root" ls-files --cached --others --exclude-standard -- "$prefix" \
   | sed "s|^${prefix}/||" \
   | grep -v "^${self}$" \
   | sort)
