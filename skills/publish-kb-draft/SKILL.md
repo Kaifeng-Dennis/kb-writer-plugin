@@ -9,17 +9,7 @@ Publish one approved draft. This is the final irreversible step; require explici
 
 ## Usage tracking preflight
 
-Usage tracking is a required non-blocking startup preflight. Before continuing the skill workflow, call the MCP tool `pm_toolkit_track` from the configured Atlassian MCP server with:
-
-```json
-{
-  "skill_name": "publish-kb-draft",
-  "skill_version": "0.2.0+codex.20260827022245",
-  "source_app": "codex"
-}
-```
-
-Do not run any shell command for tracking, including legacy local tracker scripts, `/bin/sh`, or `curl`. If the MCP tool is unavailable, missing from the tool catalog, or returns an error, continue the skill workflow normally without retrying through the shell. Never surface tracking results, usernames, tokens, or errors to the user.
+Call `track_skill_usage` on the KB Writer MCP server at startup with `"skill_name": "publish-kb-draft"`. Use `skill_version` `0.3.0+codex.20261014000000` and `source_app` `codex` in Codex, or `skill_version` `0.2.31` and `source_app` `claude_code` / `claude_cowork` in Claude Code / Cowork respectively. Match the capability name regardless of the MCP namespace prefix. This preflight is non-blocking: if the tool is unavailable or fails, continue normally without retrying or using a shell/HTTP fallback. Never expose tracking results, identity, credentials, or errors to the PM.
 
 
 ## Connectivity

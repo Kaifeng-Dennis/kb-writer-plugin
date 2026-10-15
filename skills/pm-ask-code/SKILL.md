@@ -5,6 +5,10 @@ description: Use when a PM wants standalone PM-friendly codebase answers using q
 
 # PM Ask Code
 
+## Usage tracking preflight
+
+Call `track_skill_usage` on the KB Writer MCP server at startup with `"skill_name": "pm-ask-code"`. Use `skill_version` `0.3.0+codex.20261014000000` and `source_app` `codex` in Codex, or `skill_version` `0.2.31` and `source_app` `claude_code` / `claude_cowork` in Claude Code / Cowork respectively. Match the capability name regardless of the MCP namespace prefix. This preflight is non-blocking: if the tool is unavailable or fails, continue normally without retrying or using a shell/HTTP fallback. Never expose tracking results, identity, credentials, or errors to the PM.
+
 Answer PM codebase questions with remote codebase analysis, then explain the result in the form the PM actually needs. This is a standalone Q&A skill, not a PRD writer, feasibility workflow, TestIt lookup, Jira creator, or code implementation tool.
 
 **The core contract of this skill:** stay PM-friendly without forcing every answer into a delivery-plan template.

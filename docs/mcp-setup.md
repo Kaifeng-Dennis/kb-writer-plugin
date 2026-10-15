@@ -1,15 +1,15 @@
 # KB Writer 插件 MCP 配置向导
 
-> **推荐**：直接在新线程里说「setup」或「帮我配置 KB Writer」，触发 `kb-writer:setup` skill 交互式完成全部配置（检查环境 → 登录拿 token → 可选配 Atlassian MCP → 验证）。本文档是它背后手动/参考用的完整说明。
+> **推荐**：直接在新线程里说「setup」或「帮我配置 KB Writer」，触发 `kb-writer:setup` skill 交互式完成全部配置（检查环境 → 登录拿 token → 可选配 Atlassian MCP 上下文 → 验证）。本文档是它背后手动/参考用的完整说明。
 
-KB Writer 插件的 skill 运行时依赖两类 MCP server：
+KB Writer 插件可使用两类 MCP server：
 
 | MCP server | 用途 | 必需性 |
 |---|---|---|
-| `kb-writer`（remote MCP） | 结构化调用 KB Writer 后端（skill 内优先于 raw HTTP） | 推荐；installer 会自动注册 |
-| `mcp-atlassian-service` | Jira/Confluence 上下文 + 使用量 tracking（`pm_toolkit_track`） | 可选，缺失时 tracking 静默跳过、Jira/Confluence 上下文需手动粘贴 |
+| `kb-writer`（remote MCP） | 结构化调用 KB Writer 后端并记录 skill 使用量 | 推荐；installer 会自动注册 |
+| `mcp-atlassian-service` | Jira/Confluence 上下文 | 可选；缺失时 Jira/Confluence 上下文需手动粘贴 |
 
-两者的缺失都不会阻塞 skill 主流程，但配置后体验完整。
+Skill 使用量通过 KB Writer MCP 的 `track_skill_usage` 记录，不再依赖 Atlassian MCP。统计调用失败只会使该次使用量缺失，不阻塞 skill 主流程。
 
 ## 1. kb-writer MCP server
 
@@ -153,9 +153,9 @@ Authorization: Bearer kbw_pat_...
 
 ### Local stdio compatibility fallback
 
-仅当客户端不支持 HTTP MCP 或无法直连后端时，才手工使用插件内的 local stdio adapter。不要同时注册 local 与 remote `kb-writer`，否则同一批 35 个工具会重复出现。
+仅当客户端不支持 HTTP MCP 或无法直连后端时，才手工使用插件内的 local stdio adapter。不要同时注册 local 与 remote `kb-writer`，否则同一批 36 个工具会重复出现。
 
-## 2. Atlassian MCP server（tracking + Jira/Confluence 上下文）
+## 2. Atlassian MCP server（仅用于 Jira/Confluence 上下文）
 
 ### 2.1 获取 token
 
@@ -180,22 +180,20 @@ Settings → MCP servers，添加同样的 URL 与 headers（参考 pm-toolkit R
 ### 2.3 生效与验证
 
 - 改完配置后**开新线程**，MCP 工具目录才会刷新
-- 验证：新线程里问「列出可用的 MCP 工具」，应能看到 `pm_toolkit_track`
-- tracking 失败（未配置、token 失效、服务不可达）不会报错也不会影响 skill，只是 dashboard 上少一条记录
+- 验证：新线程里问「列出可用的 MCP 工具」，确认 Jira/Confluence 能力可用；此 server 与 skill 使用量统计无关
 
-## 3. Tracking 说明
+## 3. Skill 使用量统计
 
-- 每个 skill 启动时会用 `skill_name` + 插件版本 + `source_app: "codex"` 调一次 `pm_toolkit_track`
-- 身份由 MCP server 通过 `jira-read-token` 调 Jira `/myself` 解析，token 不会离开你的环境到插件代码里
-- Dashboard：https://agent-cli-platform.int.rclabenv.com/pm_toolkit_tracking
-- 该 dashboard 与 pm-toolkit 共用；kb-writer 的 skill 以 `kb-ticket`、`create-kb-intent` 等名字记录，可在看板上按 skill_name 区分
+- 每个 skill 启动时向 KB Writer MCP 调用一次 `track_skill_usage`，传入 skill 名称、对应客户端的插件版本与 `source_app`（`codex`、`claude_code` 或 `claude_cowork`）。
+- 后端根据 KB Writer PAT 认证结果记录使用者，事件时间由后端赋值；skill 不传用户名或 token 作为统计参数。
+- 在 KB Writer 的 Dev Dashboard 的独立 **Skill Usage** 区域查看；它不与 **Usage Activity Details** 混合。
+- 统计是非阻塞的。如果工具不可用或调用失败，skill 正常继续，不经 shell/HTTP 补报，也不再回退到外部 tracker。
 
 ## 4. 故障排查
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| 新线程里没有 `pm_toolkit_track` 工具 | MCP 未配置或未刷新 | 检查 config.toml，重开线程 |
-| tracking 有数据但 username=unknown | `jira-read-token` 失效或 `/myself` 不可达 | 重新申请 token |
+| 新线程里没有 `track_skill_usage` 工具 | KB Writer MCP 未连接、客户端目录未刷新，或 Cowork 扩展未更新 | 检查 KB Writer MCP 连接；Cowork 重新安装当前 `.mcpb`，并开新会话。统计缺失不阻塞 skill |
 | 未发现 `kb-writer` MCP 工具 | 安装后客户端未刷新，或安装时没有 PAT | 用 PAT 重新运行 installer，并打开新线程/重启客户端 |
 | 报 `KB_WRITER_ACCESS_TOKEN isn't set` | `userConfig` 没填 | `/plugin configure kb-writer@kb-writer`，或带 PAT 重跑 installer |
 | Cowork 里 skills 能触发但一个 MCP 工具都没有 | 只装了插件，没装桌面扩展；插件的 `.mcp.json` 在 Cowork 里不生效 | 按「Claude Cowork」一节装 `kb-writer-mcp.mcpb`，然后新开会话 |

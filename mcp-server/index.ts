@@ -61,6 +61,7 @@ const INTEGER_ARGUMENTS = new Set([
 ]);
 
 const ARGUMENTS: Record<ApprovedCapabilityName, readonly [string[], string[]]> = {
+  track_skill_usage: [['skill_name', 'skill_version', 'source_app'], []],
   list_my_workspaces: [[], ['status', 'limit', 'cursor']],
   promote_ticket: [['jira_key'], []],
   resolve_workspace_by_jira_key: [['jira_key'], []],
@@ -158,6 +159,7 @@ function argumentSchema(argument: string): Record<string, JsonValue> {
   if (INTEGER_ARGUMENTS.has(argument)) return { type: 'integer' };
   if (argument === 'reuse_previous_context') return { type: 'boolean' };
   if (argument === 'selected_item_keys') return { type: 'array', items: { type: 'string' } };
+  if (['skill_name', 'skill_version', 'source_app'].includes(argument)) return { type: 'string' };
   return {};
 }
 

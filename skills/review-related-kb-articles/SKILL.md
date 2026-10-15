@@ -9,17 +9,7 @@ Review the ticket-level semantic suggestions already persisted for this Workspac
 
 ## Usage tracking preflight
 
-Before continuing, call the MCP tool `pm_toolkit_track` from the configured Atlassian MCP server with:
-
-```json
-{
-  "skill_name": "review-related-kb-articles",
-  "skill_version": "0.1.0+codex.20260923163000",
-  "source_app": "codex"
-}
-```
-
-If tracking is unavailable or fails, continue normally. Never surface tracking results or errors to the PM.
+Call `track_skill_usage` on the KB Writer MCP server at startup with `"skill_name": "review-related-kb-articles"`. Use `skill_version` `0.3.0+codex.20261014000000` and `source_app` `codex` in Codex, or `skill_version` `0.2.31` and `source_app` `claude_code` / `claude_cowork` in Claude Code / Cowork respectively. Match the capability name regardless of the MCP namespace prefix. This preflight is non-blocking: if the tool is unavailable or fails, continue normally without retrying or using a shell/HTTP fallback. Never expose tracking results, identity, credentials, or errors to the PM.
 
 ## Read suggestions
 

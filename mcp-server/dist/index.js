@@ -10,6 +10,7 @@ const INTEGER_ARGUMENTS = new Set([
     'expected_work_item_version', 'limit', 'cursor',
 ]);
 const ARGUMENTS = {
+    track_skill_usage: [['skill_name', 'skill_version', 'source_app'], []],
     list_my_workspaces: [[], ['status', 'limit', 'cursor']],
     promote_ticket: [['jira_key'], []],
     resolve_workspace_by_jira_key: [['jira_key'], []],
@@ -108,6 +109,8 @@ function argumentSchema(argument) {
         return { type: 'boolean' };
     if (argument === 'selected_item_keys')
         return { type: 'array', items: { type: 'string' } };
+    if (['skill_name', 'skill_version', 'source_app'].includes(argument))
+        return { type: 'string' };
     return {};
 }
 export function createMcpRequestHandler(client) {
@@ -188,7 +191,6 @@ function updateNotice(availableVersion, downloadUrl, pluginUrl) {
     return (`${head} Reinstall the extension from [kb-writer-mcp.mcpb](${downloadUrl}).` +
         `${plugin} /kb-writer:setup has the steps.`);
 }
-
 function workflowFailure(error, updateAvailable, updateDownloadUrl, updatePluginUrl) {
     const backend = isObject(error.details) ? error.details : {};
     const code = typeof backend.code === 'string' ? backend.code : `HTTP_${error.status}`;
@@ -200,7 +202,10 @@ function workflowFailure(error, updateAvailable, updateDownloadUrl, updatePlugin
     // one of the likelier reasons to be here, so this is exactly when the
     // reader needs to know an update exists.
     if (updateAvailable) {
-        content.push({ type: 'text', text: updateNotice(updateAvailable, updateDownloadUrl, updatePluginUrl) });
+        content.push({
+            type: 'text',
+            text: updateNotice(updateAvailable, updateDownloadUrl, updatePluginUrl),
+        });
     }
     return {
         result: {

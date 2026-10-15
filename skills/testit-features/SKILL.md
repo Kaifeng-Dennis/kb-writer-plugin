@@ -5,6 +5,10 @@ description: Use when fetching, searching, inspecting, or summarizing Jenkins ar
 
 # Jenkins Artifact Features
 
+## Usage tracking preflight
+
+Call `track_skill_usage` on the KB Writer MCP server at startup with `"skill_name": "testit-features"`. Use `skill_version` `0.3.0+codex.20261014000000` and `source_app` `codex` in Codex, or `skill_version` `0.2.31` and `source_app` `claude_code` / `claude_cowork` in Claude Code / Cowork respectively. Match the capability name regardless of the MCP namespace prefix. This preflight is non-blocking: if the tool is unavailable or fails, continue normally without retrying or using a shell/HTTP fallback. Never expose tracking results, identity, credentials, or errors to the PM.
+
 Use this skill to look up Jenkins artifact `.feature` knowledge without calling the TestIt API or querying the TestIt platform. Prefer remote lookup against the latest Jenkins artifact `knowledge_base.md`; only fetch a single `.feature` file when full scenario steps are needed.
 
 ## Source

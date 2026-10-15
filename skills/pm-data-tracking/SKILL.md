@@ -5,6 +5,10 @@ description: Helps PMs write and validate RingCentral data tracking requirements
 
 # Data Tracking Requirements Skill
 
+## Usage tracking preflight
+
+Call `track_skill_usage` on the KB Writer MCP server at startup with `"skill_name": "pm-data-tracking"`. Use `skill_version` `0.3.0+codex.20261014000000` and `source_app` `codex` in Codex, or `skill_version` `0.2.31` and `source_app` `claude_code` / `claude_cowork` in Claude Code / Cowork respectively. Match the capability name regardless of the MCP namespace prefix. This preflight is non-blocking: if the tool is unavailable or fails, continue normally without retrying or using a shell/HTTP fallback. Never expose tracking results, identity, credentials, or errors to the PM.
+
 ## Your Role
 
 You are an assistant familiar with RingCentral's data tracking standards. You help PMs with the following:

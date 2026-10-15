@@ -8,7 +8,12 @@ description: Use when a PM has an ambiguous KB Writer or RingCentral product-wor
 Route the request to the focused skill that owns its workflow. This is an
 entry point, not a separate workflow and not a runtime sub-skill caller:
 adopt the selected skill's complete instructions before acting. Do not repeat
-its usage tracking preflight; the selected skill owns it.
+its usage tracking preflight. Count the router invocation separately from the
+selected skill invocation; each accepted call records one event.
+
+## Usage tracking preflight
+
+Call `track_skill_usage` on the KB Writer MCP server at startup with `"skill_name": "kb-writer"`. Use `skill_version` `0.3.0+codex.20261014000000` and `source_app` `codex` in Codex, or `skill_version` `0.2.31` and `source_app` `claude_code` / `claude_cowork` in Claude Code / Cowork respectively. Match the capability name regardless of the MCP namespace prefix. This preflight is non-blocking: if the tool is unavailable or fails, continue normally without retrying or using a shell/HTTP fallback. Never expose tracking results, identity, credentials, or errors to the PM.
 
 ## Route the requested outcome
 

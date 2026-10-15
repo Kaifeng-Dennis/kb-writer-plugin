@@ -1,6 +1,7 @@
 import { KB_WRITER_MCP_VERSION } from './version.ts';
 
 export const APPROVED_CAPABILITY_NAMES = [
+  'track_skill_usage',
   'list_my_workspaces',
   'promote_ticket',
   'resolve_workspace_by_jira_key',
@@ -80,6 +81,7 @@ interface RequestSpec {
   query?: URLSearchParams;
   body?: JsonValue;
   idempotencyKey?: JsonValue;
+  mcpResult?: true;
 }
 
 export class KbWriterClient {
@@ -111,9 +113,10 @@ export class KbWriterClient {
 
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.accessToken}`,
-      Accept: 'application/json',
+      Accept: spec.mcpResult ? 'application/json, text/event-stream' : 'application/json',
       'X-KB-Writer-Client-Version': KB_WRITER_MCP_VERSION,
     };
+    if (spec.mcpResult) headers['MCP-Protocol-Version'] = '2025-06-18';
     const init: RequestInit = { method: spec.method, headers };
     if (spec.body !== undefined) {
       headers['Content-Type'] = 'application/json';
@@ -142,10 +145,28 @@ export class KbWriterClient {
       ? `${this.baseUrl}/v1/plugin-downloads/kb-writer-plugin.zip`
       : null;
     if (!response.ok) throw await backendError(response);
-    if (response.status === 204) return null;
+    if (response.status === 204) {
+      if (spec.mcpResult) throw new KbWriterBackendError(response.status, { message: 'Invalid KB Writer MCP response' });
+      return null;
+    }
     const contentType = response.headers.get('content-type') ?? '';
-    if (!contentType.toLowerCase().includes('application/json')) return null;
-    return await response.json() as JsonValue;
+    if (!contentType.toLowerCase().includes('application/json')) {
+      if (spec.mcpResult) throw new KbWriterBackendError(response.status, { message: 'Invalid KB Writer MCP response' });
+      return null;
+    }
+    const result = await response.json() as JsonValue;
+    if (spec.mcpResult) {
+      if (isJsonObject(result) && isJsonObject(result.result)
+        && isJsonObject(result.result.structuredContent)) {
+        if (result.result.isError === true) {
+          throw new KbWriterBackendError(response.status, result.result.structuredContent);
+        }
+        if (result.result.structuredContent.recorded === true) return result.result.structuredContent;
+      }
+      const error = isJsonObject(result) && isJsonObject(result.error) ? result.error : null;
+      throw new KbWriterBackendError(response.status, error ?? { message: 'Invalid KB Writer MCP response' });
+    }
+    return result;
   }
 }
 
@@ -156,6 +177,25 @@ function requestSpec(name: ApprovedCapabilityName, args: CapabilityArguments): R
   const idempotencyKey = () => required(args, 'idempotency_key');
 
   switch (name) {
+    case 'track_skill_usage':
+      return {
+        method: 'POST',
+        path: '/mcp',
+        body: {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: {
+            name,
+            arguments: {
+              skill_name: required(args, 'skill_name'),
+              skill_version: required(args, 'skill_version'),
+              source_app: required(args, 'source_app'),
+            },
+          },
+        },
+        mcpResult: true,
+      };
     case 'list_my_workspaces':
       return {
         method: 'GET',

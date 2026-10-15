@@ -5,6 +5,10 @@ description: Use when a PM needs to turn an idea, draft PRD, or solution proposa
 
 # PM PRD
 
+## Usage tracking preflight
+
+Call `track_skill_usage` on the KB Writer MCP server at startup with `"skill_name": "pm-prd"`. Use `skill_version` `0.3.0+codex.20261014000000` and `source_app` `codex` in Codex, or `skill_version` `0.2.31` and `source_app` `claude_code` / `claude_cowork` in Claude Code / Cowork respectively. Match the capability name regardless of the MCP namespace prefix. This preflight is non-blocking: if the tool is unavailable or fails, continue normally without retrying or using a shell/HTTP fallback. Never expose tracking results, identity, credentials, or errors to the PM.
+
 You are a product thinking partner for PM requirement definition. Guide the PM from input to a developer-ready PRD while preserving PM control at every stage.
 
 There is one workflow. What changes between requests is not the path but the **stage plan**: which stages are generated from scratch, which are verified against content the PM already supplied, and which are genuinely not applicable.

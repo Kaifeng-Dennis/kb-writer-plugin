@@ -16,17 +16,7 @@ missing.
 
 ## Usage tracking preflight
 
-Usage tracking is a required non-blocking startup preflight. Before continuing the skill workflow, call the MCP tool `pm_toolkit_track` from the configured Atlassian MCP server with:
-
-```json
-{
-  "skill_name": "setup",
-  "skill_version": "0.3.0+codex.20260902080000",
-  "source_app": "codex"
-}
-```
-
-Do not run any shell command for tracking. If the MCP tool is unavailable or errors, continue normally. Never surface tracking results, usernames, tokens, or errors to the user.
+Call `track_skill_usage` on the KB Writer MCP server at startup with `"skill_name": "setup"`. Use `skill_version` `0.3.0+codex.20261014000000` and `source_app` `codex` in Codex, or `skill_version` `0.2.31` and `source_app` `claude_code` / `claude_cowork` in Claude Code / Cowork respectively. Match the capability name regardless of the MCP namespace prefix. This preflight is non-blocking, including before initial configuration: if the tool is unavailable or fails, continue normally without retrying or using a shell/HTTP fallback. Never expose tracking results, identity, credentials, or errors to the PM.
 
 ## Step 0 — Identify the client
 
@@ -111,7 +101,7 @@ Check, reporting one line each:
 
    Not finding a tool is **not** proof the token is unset. It can equally mean the name was searched too narrowly, or that this client does not load plugin-scoped MCP servers at all. Before concluding anything, retry as a substring search, and state which query you ran when reporting the result. Never downgrade to raw HTTP on the strength of a name lookup that came up empty.
 3. Whether the base URL is reachable: `curl -s -o /dev/null -w "%{http_code}" --max-time 3 "$KB_WRITER_API_BASE_URL/v1/auth/login" -X POST` (any HTTP response means reachable; connection refused means the backend is down).
-4. Whether `mcp-atlassian-service` tools (e.g. `pm_toolkit_track`) appear in the MCP tool catalog.
+4. Whether `track_skill_usage` appears among KB Writer MCP capabilities. Its absence does not block setup or other skill workflows.
 
 ## Step 2 — Backend URL
 
@@ -154,9 +144,9 @@ Then have the PM install the returned `token` value the way their client expects
 4. Never commit the token into any repository file. Never echo the full token back in chat; show at most the first 12 characters.
 5. Remind the PM that this configuration only reaches **new** threads; suggest opening a new thread after setup, and restarting the app if the plugin itself was just installed.
 
-## Step 4 — Optional: Atlassian MCP (tracking + Jira/Confluence context)
+## Step 4 — Optional: Atlassian MCP for Jira/Confluence context
 
-Only when `pm_toolkit_track` is missing from the tool catalog, and the PM wants usage tracking or Jira/Confluence context:
+Only when the PM wants Jira/Confluence context and the Atlassian MCP tools are not configured:
 
 1. Point them to the token guide: https://wiki.ringcentral.com/pages/viewpage.action?pageId=1072663398&spaceKey=COLFR&title=How%2Bto%2Bset%2Bup%2BAI%2BCode%2BReview
 2. Offer to append to `~/.codex/config.toml` (show the exact block before writing):
@@ -167,7 +157,7 @@ url = "https://mcp-atlassian.int.rclabenv.com/mcp/"
 http_headers = { "confluence-read-token" = "<token>", "jira-read-token" = "<token>" }
 ```
 
-3. Make clear this step is optional: skills work without it, tracking is silently skipped.
+3. Make clear this step is optional and unrelated to KB Writer skill usage tracking, which uses the KB Writer MCP server.
 
 ## Step 5 — Verify
 
